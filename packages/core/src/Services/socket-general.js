@@ -64,6 +64,11 @@ const BinarySocketGeneral = (() => {
                     }
                 }
                 break;
+            case 'authorize':
+                if (response.authorize && response.authorize.loginid) {
+                    authorizeAccount(response);
+                }
+                break;
             // no default
         }
     };

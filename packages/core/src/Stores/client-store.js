@@ -15,7 +15,7 @@ import {
 } from '@deriv/shared';
 import { getInitialLanguage, localize } from '@deriv-com/translations';
 
-import { requestRestLogout, WS } from 'Services';
+import { BinarySocketGeneral, requestRestLogout, WS } from 'Services';
 import { fetchAccounts, fetchOTP } from '../Services/accounts-api';
 import { clearTokens, generateOAuthURL, getStoredToken, isEmbeddedMode } from '../Services/oauth';
 
@@ -324,48 +324,63 @@ export default class ClientStore extends BaseStore {
         const action_param = search_params?.get('action');
         const loginid_param = search_params?.get('loginid');
 
-        if (getStoredToken()) {
+        const token = getStoredToken();
+        if (token) {
             // Set is_logging_in to true while we wait for authorization
             this.setIsLoggingIn(true);
+            let is_authorized = false;
 
-            // Step 5 of OAuth flow: fetch accounts → pick active account → get OTP WS URL.
-            // The OTP URL embeds auth — once the socket opens and subscribes to balance,
-            // socket-general.js calls authorizeAccount() which completes the login.
+            // Strategy 1: Attempt REST v4 OAuth flow (fetchAccounts + fetchOTP)
             try {
                 const accounts = await fetchAccounts();
                 // Embedded mode: the parent frame passes ?account=<loginid> so the
                 // iframe trades on the same account the parent has selected.
                 const requested_account = search_params?.get('account');
                 const active_account =
-                    accounts.find(
+                    accounts?.find(
                         a => a.account_id === (requested_account || sessionStorage.getItem('active_loginid'))
                     ) ||
-                    accounts.find(a => a.account_type === 'demo') ||
-                    accounts[0];
+                    accounts?.find(a => a.account_type === 'demo') ||
+                    accounts?.[0];
 
-                if (!active_account) throw new Error('No accounts found');
+                if (active_account) {
+                    sessionStorage.setItem('active_loginid', active_account.account_id);
+                    localStorage.setItem('active_loginid', active_account.account_id);
+                    localStorage.setItem('account_type', active_account.account_type);
 
-                sessionStorage.setItem('active_loginid', active_account.account_id);
-                localStorage.setItem('active_loginid', active_account.account_id);
-                localStorage.setItem('account_type', active_account.account_type);
+                    const ws_url = await fetchOTP(active_account.account_id);
+                    BinarySocket.setWSUrl(ws_url);
+                    BinarySocket.closeAndOpenNewConnection();
 
-                const ws_url = await fetchOTP(active_account.account_id);
-                BinarySocket.setWSUrl(ws_url);
-                BinarySocket.closeAndOpenNewConnection();
-
-                // Wait for balance response which serves as authorization.
-                // socket-general.js processes the balance response and calls authorizeAccount().
-                await BinarySocket.wait('balance');
+                    // Wait for balance response which serves as authorization.
+                    // socket-general.js processes the balance response and calls authorizeAccount().
+                    await BinarySocket.wait('balance');
+                    is_authorized = true;
+                }
             } catch (error) {
-                // eslint-disable-next-line no-console
-                console.error('[Auth] Account init failed:', error);
-                clearTokens();
-                // Fall back to public market-data service so trading store can load symbols
-                BinarySocket.setWSUrl(null);
-                BinarySocket.closeAndOpenNewConnection();
-            } finally {
-                this.setIsLoggingIn(false);
+                // v4 REST flow failed — token may be a Deriv API WebSocket session token
             }
+
+            // Strategy 2: Direct WebSocket authorize (handles Deriv API tokens e.g. a1-xxx and OAuth tokens)
+            if (!is_authorized) {
+                try {
+                    BinarySocket.setWSUrl(null);
+                    BinarySocket.closeAndOpenNewConnection();
+                    const auth_res = await BinarySocket.send({ authorize: token });
+                    if (auth_res?.authorize?.loginid) {
+                        BinarySocketGeneral.authorizeAccount(auth_res);
+                        is_authorized = true;
+                    }
+                } catch (wsErr) {
+                    // eslint-disable-next-line no-console
+                    console.warn('[Auth] Direct WebSocket authorization failed:', wsErr);
+                    clearTokens();
+                    BinarySocket.setWSUrl(null);
+                    BinarySocket.closeAndOpenNewConnection();
+                }
+            }
+
+            this.setIsLoggingIn(false);
         } else {
             // Public market data does not require OAuth.
             // Connect to Deriv's public market-data service and open connection

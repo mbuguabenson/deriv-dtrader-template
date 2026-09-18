@@ -61,6 +61,15 @@ export const redirectToLogin = async (_language?: string): Promise<void> => {
     if (oauth_app_id) params.set('app_id', oauth_app_id);
 
     const auth_url = `${getAuthBaseUrl()}/oauth2/auth?${params}`;
+    if (window.top && window.top !== window) {
+        try {
+            window.top.location.href = auth_url;
+            return;
+        } catch {
+            window.open(auth_url, '_blank');
+            return;
+        }
+    }
     window.location.replace(auth_url);
 };
 
