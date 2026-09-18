@@ -11,7 +11,7 @@
         "name": "Trading Platform",
         "description": "A whole new trading experience on a powerful yet easy to use platform.",
         "logo": "brand/platform-logo.svg",
-        "home_url": "https://home.deriv.com/dashboard",
+        "home_url": "",
         "help_centre_url": "https://trade.deriv.com/help-centre"
     },
     "signup_url": {

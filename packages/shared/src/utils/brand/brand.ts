@@ -249,7 +249,9 @@ export const getApiBaseUrl = (): string => {
  * @returns Help Centre URL (e.g., "https://trade.deriv.com/help-centre")
  */
 export const getHomeUrl = (): string => {
-    return substituteDerivDomain(((config_data.platform as Record<string, unknown>).home_url as string) ?? '');
+    const rawHomeUrl = ((config_data.platform as Record<string, unknown>).home_url as string) ?? '';
+    if (!rawHomeUrl) return '';
+    return substituteDerivDomain(rawHomeUrl);
 };
 
 export const getHelpCentreUrl = (): string => {

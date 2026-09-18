@@ -17,7 +17,14 @@ import { getInitialLanguage, localize } from '@deriv-com/translations';
 
 import { BinarySocketGeneral, requestRestLogout, WS } from 'Services';
 import { fetchAccounts, fetchOTP } from '../Services/accounts-api';
-import { clearTokens, generateOAuthURL, getStoredToken, isEmbeddedMode, setEmbeddedMode, storeTokens } from '../Services/oauth';
+import {
+    clearTokens,
+    generateOAuthURL,
+    getStoredToken,
+    isEmbeddedMode,
+    setEmbeddedMode,
+    storeTokens,
+} from '../Services/oauth';
 
 import { getClientAccountType } from './Helpers/client';
 import { buildCurrenciesList } from './Modules/Trading/Helpers/currency';
@@ -325,9 +332,7 @@ export default class ClientStore extends BaseStore {
         const loginid_param = search_params?.get('loginid');
 
         const query_token =
-            search_params?.get('token') ||
-            search_params?.get('token1') ||
-            search_params?.get('access_token');
+            search_params?.get('token') || search_params?.get('token1') || search_params?.get('access_token');
         if (query_token) {
             storeTokens(query_token);
             setEmbeddedMode();
@@ -494,11 +499,7 @@ export default class ClientStore extends BaseStore {
             if (!data || typeof data !== 'object') return;
 
             const incomingToken =
-                data.token ||
-                data.token1 ||
-                data.auth?.access_token ||
-                data.payload?.token ||
-                data.payload?.token1;
+                data.token || data.token1 || data.auth?.access_token || data.payload?.token || data.payload?.token1;
             const incomingAccount =
                 data.loginid ||
                 data.loginId ||
