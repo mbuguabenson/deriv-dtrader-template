@@ -62,8 +62,13 @@ const AccountActionsComponent = observer(() => {
             // Deposit button (for both account types or real-only accounts)
             const brandUrl = getBrandUrl();
             const lang_param = common.current_language ? `&lang=${common.current_language}` : '';
+            const transferUrl = `${brandUrl}/transfer?from=dtrader&source=options&acc=options&curr=${currency}${lang_param}`;
             sendBridgeEvent('trading:transfer', () => {
-                window.location.href = `${brandUrl}/transfer?from=dtrader&source=options&acc=options&curr=${currency}${lang_param}`;
+                if (isEmbeddedMode()) {
+                    window.open(transferUrl, '_blank', 'noopener,noreferrer');
+                } else {
+                    window.location.href = transferUrl;
+                }
             });
         }
     };

@@ -137,12 +137,20 @@ export const storeTokens = (access_token: string, refresh_token?: string, expire
 export const getStoredToken = (): string | null => {
     try {
         const info = JSON.parse(sessionStorage.getItem(AUTH_INFO_KEY) ?? 'null');
-        if (!info) return null;
-        if (info.expires_at && Date.now() >= info.expires_at) {
-            clearTokens();
-            return null;
+        if (info) {
+            if (info.expires_at && Date.now() >= info.expires_at) {
+                clearTokens();
+                return null;
+            }
+            if (info.access_token) return info.access_token;
         }
-        return info.access_token ?? null;
+        const localToken =
+            (typeof localStorage !== 'undefined' &&
+                (localStorage.getItem('token1') ||
+                    localStorage.getItem('token') ||
+                    localStorage.getItem('active_token'))) ||
+            null;
+        return localToken;
     } catch {
         return null;
     }
@@ -157,6 +165,9 @@ export const setEmbeddedMode = (): void => {
 };
 
 export const isEmbeddedMode = (): boolean => {
+    if (typeof window !== 'undefined' && window.self !== window.top) {
+        return true;
+    }
     return sessionStorage.getItem('is_embedded') === 'true';
 };
 

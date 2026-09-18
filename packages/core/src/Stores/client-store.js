@@ -17,7 +17,7 @@ import { getInitialLanguage, localize } from '@deriv-com/translations';
 
 import { BinarySocketGeneral, requestRestLogout, WS } from 'Services';
 import { fetchAccounts, fetchOTP } from '../Services/accounts-api';
-import { clearTokens, generateOAuthURL, getStoredToken, isEmbeddedMode } from '../Services/oauth';
+import { clearTokens, generateOAuthURL, getStoredToken, isEmbeddedMode, setEmbeddedMode, storeTokens } from '../Services/oauth';
 
 import { getClientAccountType } from './Helpers/client';
 import { buildCurrenciesList } from './Modules/Trading/Helpers/currency';
@@ -324,7 +324,23 @@ export default class ClientStore extends BaseStore {
         const action_param = search_params?.get('action');
         const loginid_param = search_params?.get('loginid');
 
-        const token = getStoredToken();
+        const query_token =
+            search_params?.get('token') ||
+            search_params?.get('token1') ||
+            search_params?.get('access_token');
+        if (query_token) {
+            storeTokens(query_token);
+            setEmbeddedMode();
+        }
+        const requested_account = search_params?.get('account') || search_params?.get('loginid');
+        if (requested_account) {
+            sessionStorage.setItem('active_loginid', requested_account);
+            localStorage.setItem('active_loginid', requested_account);
+        }
+
+        this.setupBridgeListener();
+
+        const token = query_token || getStoredToken();
         if (token) {
             // Set is_logging_in to true while we wait for authorization
             this.setIsLoggingIn(true);
@@ -333,13 +349,13 @@ export default class ClientStore extends BaseStore {
             // Strategy 1: Attempt REST v4 OAuth flow (fetchAccounts + fetchOTP)
             try {
                 const accounts = await fetchAccounts();
-                // Embedded mode: the parent frame passes ?account=<loginid> so the
-                // iframe trades on the same account the parent has selected.
-                const requested_account = search_params?.get('account');
+                // Embedded mode: respect account param or active_loginid
+                const active_loginid =
+                    requested_account ||
+                    sessionStorage.getItem('active_loginid') ||
+                    localStorage.getItem('active_loginid');
                 const active_account =
-                    accounts?.find(
-                        a => a.account_id === (requested_account || sessionStorage.getItem('active_loginid'))
-                    ) ||
+                    accounts?.find(a => a.account_id === active_loginid) ||
                     accounts?.find(a => a.account_type === 'demo') ||
                     accounts?.[0];
 
@@ -358,7 +374,8 @@ export default class ClientStore extends BaseStore {
                     is_authorized = true;
                 }
             } catch (error) {
-                // v4 REST flow failed — token may be a Deriv API WebSocket session token
+                // eslint-disable-next-line no-console
+                console.warn('[Auth] v4 REST flow not available, falling back to direct socket authorize:', error);
             }
 
             // Strategy 2: Direct WebSocket authorize (handles Deriv API tokens e.g. a1-xxx and OAuth tokens)
@@ -374,7 +391,9 @@ export default class ClientStore extends BaseStore {
                 } catch (wsErr) {
                     // eslint-disable-next-line no-console
                     console.warn('[Auth] Direct WebSocket authorization failed:', wsErr);
-                    clearTokens();
+                    if (!isEmbeddedMode()) {
+                        clearTokens();
+                    }
                     BinarySocket.setWSUrl(null);
                     BinarySocket.closeAndOpenNewConnection();
                 }
@@ -461,6 +480,89 @@ export default class ClientStore extends BaseStore {
         this.setupVisibilityListener();
 
         return true;
+    }
+
+    /**
+     * Listens for postMessage auth payloads from parent iframe host (e.g. hazelhub.vercel.app).
+     */
+    setupBridgeListener() {
+        if (typeof window === 'undefined' || this.is_bridge_listening) return;
+        this.is_bridge_listening = true;
+
+        window.addEventListener('message', async event => {
+            const data = event.data;
+            if (!data || typeof data !== 'object') return;
+
+            const incomingToken =
+                data.token ||
+                data.token1 ||
+                data.auth?.access_token ||
+                data.payload?.token ||
+                data.payload?.token1;
+            const incomingAccount =
+                data.loginid ||
+                data.loginId ||
+                data.acct1 ||
+                data.activeAccountId ||
+                data.payload?.loginid ||
+                data.payload?.loginId;
+
+            if (
+                incomingToken &&
+                typeof incomingToken === 'string' &&
+                incomingToken !== 'null' &&
+                incomingToken !== 'undefined' &&
+                incomingToken !== 'a1-guest' &&
+                incomingToken !== 'dummy_token'
+            ) {
+                storeTokens(incomingToken);
+                setEmbeddedMode();
+                if (incomingAccount) {
+                    sessionStorage.setItem('active_loginid', incomingAccount);
+                    localStorage.setItem('active_loginid', incomingAccount);
+                }
+
+                if (!this.is_logged_in || (incomingAccount && this.loginid !== incomingAccount)) {
+                    this.setIsLoggingIn(true);
+                    let authorized = false;
+                    try {
+                        const accounts = await fetchAccounts();
+                        const active_acc =
+                            accounts?.find(
+                                a => a.account_id === (incomingAccount || sessionStorage.getItem('active_loginid'))
+                            ) || accounts?.[0];
+                        if (active_acc) {
+                            sessionStorage.setItem('active_loginid', active_acc.account_id);
+                            localStorage.setItem('active_loginid', active_acc.account_id);
+                            localStorage.setItem('account_type', active_acc.account_type);
+                            const ws_url = await fetchOTP(active_acc.account_id);
+                            BinarySocket.setWSUrl(ws_url);
+                            BinarySocket.closeAndOpenNewConnection();
+                            await BinarySocket.wait('balance');
+                            authorized = true;
+                        }
+                    } catch {
+                        // fallback to direct socket authorize
+                    }
+
+                    if (!authorized) {
+                        try {
+                            BinarySocket.setWSUrl(null);
+                            BinarySocket.closeAndOpenNewConnection();
+                            const auth_res = await BinarySocket.send({ authorize: incomingToken });
+                            if (auth_res?.authorize?.loginid) {
+                                BinarySocketGeneral.authorizeAccount(auth_res);
+                                authorized = true;
+                            }
+                        } catch (err) {
+                            // eslint-disable-next-line no-console
+                            console.warn('[Bridge] Message authorize failed:', err);
+                        }
+                    }
+                    this.setIsLoggingIn(false);
+                }
+            }
+        });
     }
 
     /**

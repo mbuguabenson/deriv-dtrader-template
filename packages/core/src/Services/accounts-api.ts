@@ -20,11 +20,20 @@ export type TAccount = {
 const getHeaders = (includeContentType = true): HeadersInit => {
     const token = getStoredToken();
     if (!token) throw new Error('No access token — user must log in');
-    return {
-        'Deriv-App-ID': String(getAppId()),
-        Authorization: `Bearer ${token}`,
+    const cleanToken = token.replace(/^Bearer\s+/i, '');
+    const headers: Record<string, string> = {
+        Authorization: `Bearer ${cleanToken}`,
         ...(includeContentType && { 'Content-Type': 'application/json' }),
     };
+
+    // Per Deriv specification: OAuth tokens use Authorization: Bearer only.
+    // Personal Access Tokens (PAT) also require Deriv-App-ID.
+    const isPat = cleanToken.startsWith('pat_') || cleanToken.startsWith('PAT_');
+    if (isPat) {
+        headers['Deriv-App-ID'] = String(getAppId());
+    }
+
+    return headers;
 };
 
 /** Fetch wrapper: retries once with a refreshed token on 401. */
@@ -36,8 +45,7 @@ const apiFetch = async (url: string, options: RequestInit = {}, includeContentTy
             await refreshAccessToken();
             return fetch(url, { ...options, headers: getHeaders(includeContentType) });
         }
-        clearTokens();
-        throw new Error('No refresh token stored — authorization flow incomplete');
+        throw new Error('Unauthorized — no refresh token stored');
     }
     return res;
 };
