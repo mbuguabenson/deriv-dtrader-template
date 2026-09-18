@@ -5,7 +5,7 @@
     "brand_domain": "deriv.com",
     "brand_hostname": {
         "staging": "staging.dtrader-template.pages.dev",
-        "production": "deriv-dtrader-ten.vercel.app"
+        "production": "profhubdtrader.vercel.app"
     },
     "platform": {
         "name": "Trading Platform",
@@ -20,7 +20,7 @@
     },
     "deposit_url": {
         "staging": "https://staging.dtrader-template.pages.dev/transfer",
-        "production": "https://deriv-dtrader-ten.vercel.app/transfer"
+        "production": "https://profhubdtrader.vercel.app/transfer"
     },
     "auth": {
         "staging": "https://staging-auth.deriv.com",
@@ -30,9 +30,9 @@
             "account_manage"
         ],
         "oauth_redirect_uri_staging": "https://staging.dtrader-template.pages.dev",
-        "oauth_redirect_uri_production": "https://deriv-dtrader-ten.vercel.app",
-        "oauth_app_id": "337x8IVbWsDmK8uQ423wB",
-        "oauth_client_id": "337x8IVbWsDmK8uQ423wB"
+        "oauth_redirect_uri_production": "https://profhubdtrader.vercel.app",
+        "oauth_app_id": "34qV9FtmeYPRVWVJXIxr2",
+        "oauth_client_id": "34qV9FtmeYPRVWVJXIxr2"
     },
     "derivws": {
         "staging": "https://staging-api.derivws.com",
