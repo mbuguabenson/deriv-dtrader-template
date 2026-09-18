@@ -31,8 +31,13 @@ const getHeaders = (includeContentType = true): HeadersInit => {
 const apiFetch = async (url: string, options: RequestInit = {}, includeContentType = true): Promise<Response> => {
     const res = await fetch(url, { ...options, headers: getHeaders(includeContentType) });
     if (res.status === 401) {
-        await refreshAccessToken();
-        return fetch(url, { ...options, headers: getHeaders(includeContentType) });
+        const info = JSON.parse(sessionStorage.getItem('auth_info') ?? 'null');
+        if (info?.refresh_token) {
+            await refreshAccessToken();
+            return fetch(url, { ...options, headers: getHeaders(includeContentType) });
+        }
+        clearTokens();
+        throw new Error('No refresh token stored — authorization flow incomplete');
     }
     return res;
 };

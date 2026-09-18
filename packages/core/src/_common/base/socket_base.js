@@ -354,7 +354,54 @@ const BinarySocketBase = (() => {
             dry_run,
         });
 
-    const activeSymbols = (mode = 'brief') => deriv_api.activeSymbols(mode);
+    const ensureApiReady = () => {
+        if (deriv_api && isReady()) {
+            return Promise.resolve(deriv_api);
+        }
+        if (!binary_socket || isClose()) {
+            openNewConnection();
+        }
+        return new Promise(resolve => {
+            if (deriv_api && isReady()) {
+                resolve(deriv_api);
+                return;
+            }
+            let is_resolved = false;
+            let sub = null;
+
+            const onDone = () => {
+                if (!is_resolved && deriv_api) {
+                    is_resolved = true;
+                    sub?.unsubscribe?.();
+                    resolve(deriv_api);
+                }
+            };
+
+            if (deriv_api) {
+                sub = deriv_api.onOpen().subscribe(onDone);
+            }
+
+            const check_interval = setInterval(() => {
+                if (deriv_api && isReady()) {
+                    clearInterval(check_interval);
+                    onDone();
+                }
+            }, 50);
+
+            setTimeout(() => {
+                clearInterval(check_interval);
+                onDone();
+            }, 8000);
+        });
+    };
+
+    const activeSymbols = async (mode = 'brief') => {
+        const api = await ensureApiReady();
+        if (!api) {
+            throw new Error('deriv_api is undefined: WebSocket connection failed to open');
+        }
+        return api.activeSymbols(mode);
+    };
 
     const transferBetweenAccounts = (account_from, account_to, currency, amount) =>
         deriv_api.send({

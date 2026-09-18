@@ -166,7 +166,10 @@ export const isEmbeddedMode = (): boolean => {
 
 export const refreshAccessToken = async (): Promise<string> => {
     const info = JSON.parse(sessionStorage.getItem(AUTH_INFO_KEY) ?? 'null');
-    if (!info?.refresh_token) throw new Error('No refresh token stored');
+    if (!info?.refresh_token) {
+        clearTokens();
+        throw new Error('No refresh token stored');
+    }
 
     const response = await fetch(`${getAuthBaseUrl()}/oauth2/token`, {
         method: 'POST',
@@ -178,7 +181,10 @@ export const refreshAccessToken = async (): Promise<string> => {
         }),
     });
 
-    if (!response.ok) throw new Error(`Token refresh failed: ${response.status}`);
+    if (!response.ok) {
+        clearTokens();
+        throw new Error(`Token refresh failed: ${response.status}`);
+    }
     const data = await response.json();
     storeTokens(data.access_token, data.refresh_token, data.expires_in);
     return data.access_token;

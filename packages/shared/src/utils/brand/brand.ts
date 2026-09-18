@@ -120,7 +120,7 @@ const substituteDerivDomain = (url: string): string => {
  */
 export const getTrustedDomainName = (): string => {
     const domain = getDomainName();
-    return domain === getBrandDomain() ? domain : 'deriv.com';
+    return domain === getBrandDomain() ? domain : '';
 };
 
 /**

@@ -243,8 +243,9 @@ export default class ClientStore extends BaseStore {
                 preferred_language,
                 user_id,
             };
-            Cookies.set('region', getRegion(landing_company_shortcode, residence), { domain });
-            Cookies.set('client_information', client_information, { domain });
+            const cookie_options = domain ? { domain } : {};
+            Cookies.set('region', getRegion(landing_company_shortcode, residence), cookie_options);
+            Cookies.set('client_information', client_information, cookie_options);
             this.has_cookie_account = true;
         } else {
             removeCookies('region', 'client_information');
@@ -359,7 +360,17 @@ export default class ClientStore extends BaseStore {
                 // eslint-disable-next-line no-console
                 console.error('[Auth] Account init failed:', error);
                 clearTokens();
+                // Fall back to public market-data service so trading store can load symbols
+                BinarySocket.setWSUrl(null);
+                BinarySocket.closeAndOpenNewConnection();
+            } finally {
+                this.setIsLoggingIn(false);
             }
+        } else {
+            // Public market data does not require OAuth.
+            // Connect to Deriv's public market-data service and open connection
+            BinarySocket.setWSUrl(null);
+            BinarySocket.openNewConnection();
         }
 
         // Handle special action parameters and user_id for both logged-in and logged-out states
