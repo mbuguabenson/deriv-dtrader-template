@@ -9,6 +9,8 @@ type TBotHudProps = {
     consecutiveLosses: number;
     currentStake: number;
     isRecoveryActive: boolean;
+    batchRunCount?: number;
+    reanalyzeTicksRemaining?: number;
 };
 
 export const BotHud: React.FC<TBotHudProps> = ({
@@ -19,6 +21,8 @@ export const BotHud: React.FC<TBotHudProps> = ({
     consecutiveLosses,
     currentStake,
     isRecoveryActive,
+    batchRunCount = 0,
+    reanalyzeTicksRemaining = 0,
 }) => {
     const totalTrades = totalWins + totalLosses;
     const winRate = totalTrades > 0 ? Math.round((totalWins / totalTrades) * 100) : 0;
@@ -36,7 +40,13 @@ export const BotHud: React.FC<TBotHudProps> = ({
             case 'EXECUTING':
                 return { text: '🚀 EXECUTING TRADE VIA DERIV API', className: 'status-executing' };
             case 'COOLDOWN':
-                return { text: '⏳ POST-TRADE COOLDOWN', className: 'status-cooldown' };
+                return {
+                    text:
+                        reanalyzeTicksRemaining > 0
+                            ? `⏳ RE-ANALYZING MARKET: Pausing after 5 runs (${reanalyzeTicksRemaining} ticks left)`
+                            : '⏳ POST-TRADE COOLDOWN: Re-analyzing Signal',
+                    className: 'status-cooldown',
+                };
             case 'PAUSED':
                 return { text: '⏸ PAUSED (Stop Loss / Boundary)', className: 'status-paused' };
             case 'TARGET_REACHED':
@@ -54,6 +64,11 @@ export const BotHud: React.FC<TBotHudProps> = ({
             <div className={`hud-status-banner ${statusBadge.className}`}>
                 <div className='status-pulse-dot' />
                 <span className='status-text'>{statusBadge.text}</span>
+                {botStatus !== 'IDLE' && botStatus !== 'PAUSED' && botStatus !== 'TARGET_REACHED' && (
+                    <span className='batch-counter-badge' style={{ marginLeft: 'auto', fontSize: '11px', opacity: 0.85, fontWeight: 600 }}>
+                        Signal Batch: {batchRunCount}/5 Runs
+                    </span>
+                )}
                 {isRecoveryActive && (
                     <span className='recovery-mode-badge'>⚠️ 2x Recovery Active (Over 2 / Under 8)</span>
                 )}

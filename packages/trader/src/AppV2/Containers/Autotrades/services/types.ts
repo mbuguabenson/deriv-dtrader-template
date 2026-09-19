@@ -97,4 +97,6 @@ export type TStrategyConfig = {
     evenOddRecoveryMode: boolean;
     interlockingPair: 'EVEN_ODD' | 'OVER_UNDER';
     interlockingFlipOnLoss: boolean;
+    maxRunsPerSignalBatch: number; // default 5: pause & re-analyze after 5 trades
+    reanalyzeCooldownTicks: number; // default 15: ticks required to verify fresh signal
 };

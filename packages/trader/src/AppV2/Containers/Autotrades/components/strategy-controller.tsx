@@ -217,6 +217,28 @@ export const StrategyController: React.FC<TStrategyControllerProps> = ({
                     />
                 </div>
 
+                {/* Signal Batch Guardian (Pause after N runs & re-analyze) */}
+                <div className='param-group'>
+                    <div className='param-header-label'>
+                        <span>Signal Run Limit</span>
+                        <span className='param-sub-info'>Pause & Re-analyze</span>
+                    </div>
+                    <div className='param-toggle-buttons'>
+                        {[3, 5, 10].map(runs => (
+                            <button
+                                key={runs}
+                                type='button'
+                                className={`param-toggle-btn ${
+                                    (config.maxRunsPerSignalBatch || 5) === runs ? 'is-active' : ''
+                                }`}
+                                onClick={() => onChangeConfig({ maxRunsPerSignalBatch: runs })}
+                            >
+                                {runs} Runs
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
                 {/* Over/Under Prediction Pair: available for ELITE_PRO and INTERLOCKING (when OVER_UNDER selected) */}
                 {(activeStrategy === 'ELITE_PRO' ||
                     (activeStrategy === 'INTERLOCKING' && config.interlockingPair === 'OVER_UNDER')) && (

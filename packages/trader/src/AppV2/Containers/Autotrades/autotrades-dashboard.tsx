@@ -200,6 +200,8 @@ export const AutotradesDashboard = observer(() => {
                     consecutiveLosses={engineState.consecutiveLosses}
                     currentStake={engineState.currentStake}
                     isRecoveryActive={engineState.isRecoveryActive}
+                    batchRunCount={engineState.batchRunCount}
+                    reanalyzeTicksRemaining={engineState.reanalyzeTicksRemaining}
                 />
 
                 {/* 3. Real-Time Visual Analytics: 50-Digit Line Chart */}

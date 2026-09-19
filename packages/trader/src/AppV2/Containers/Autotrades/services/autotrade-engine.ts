@@ -71,6 +71,8 @@ class AutoTradeEngine {
         evenOddRecoveryMode: true,
         interlockingPair: 'EVEN_ODD',
         interlockingFlipOnLoss: true,
+        maxRunsPerSignalBatch: 5,
+        reanalyzeCooldownTicks: 15,
     };
 
     // Runtime state
@@ -89,6 +91,8 @@ class AutoTradeEngine {
     private consecutiveOppositeParityCount: number = 0;
     private interlockingLastContract: string | null = null;
     private interlockingLastWon: boolean = true;
+    private batchRunCount: number = 0;
+    private reanalyzeTicksRemaining: number = 0;
     private tradeLogs: TTradeLogItem[] = [];
     private listeners: TEngineListener[] = [];
     private unsubscribeMarketData: (() => void) | null = null;
@@ -132,6 +136,8 @@ class AutoTradeEngine {
             consecutiveLosses: this.consecutiveLosses,
             currentStake: parseFloat(this.currentCalculatedStake.toFixed(2)),
             isRecoveryActive: this.isRecoveryActive,
+            batchRunCount: this.batchRunCount,
+            reanalyzeTicksRemaining: this.reanalyzeTicksRemaining,
             tradeLogs: this.tradeLogs,
         };
     }
@@ -283,6 +289,16 @@ class AutoTradeEngine {
 
     private handleTickUpdate(statsMap: Record<string, TMarketTickStats>, activeSymbol: string) {
         if (!this.isRunning || this.isExecutingOrder) return;
+
+        // Signal Guardian: Enforce re-analysis pause cooldown after batch runs
+        if (this.reanalyzeTicksRemaining > 0) {
+            this.reanalyzeTicksRemaining--;
+            this.botStatus = 'COOLDOWN';
+            this.notify();
+            return;
+        } else if (this.botStatus === 'COOLDOWN') {
+            this.botStatus = 'ANALYZING';
+        }
 
         // Auto-switch best market if enabled and every 15-30 ticks
         this.ticksSinceLastEval++;
@@ -875,11 +891,33 @@ class AutoTradeEngine {
             }
         }
 
+        // Signal Guardian: Track batch runs & trigger re-analysis pause after 5 runs
+        this.batchRunCount++;
+        const maxBatch = this.config.maxRunsPerSignalBatch || 5;
+
+        if (this.batchRunCount >= maxBatch) {
+            this.batchRunCount = 0;
+            this.reanalyzeTicksRemaining = this.config.reanalyzeCooldownTicks || 15;
+            this.botStatus = 'COOLDOWN';
+            // Clear temporary momentum counters so re-analysis requires fresh pattern verification
+            this.consecutiveOppositeParityCount = 0;
+            this.differsRunCount = 0;
+            this.differsWaitingSafeTicks = 0;
+            // eslint-disable-next-line no-console
+            console.log(
+                `[Signal Guardian] Completed ${maxBatch} runs on active signal. Pausing execution for ${this.config.reanalyzeCooldownTicks || 15} ticks to re-analyze market conditions & await verified trigger.`
+            );
+        }
+
         // Brief cooldown between ticks
         setTimeout(() => {
             this.isExecutingOrder = false;
             if (this.isRunning) {
-                this.botStatus = 'SCANNING';
+                if (this.reanalyzeTicksRemaining > 0) {
+                    this.botStatus = 'COOLDOWN';
+                } else {
+                    this.botStatus = 'SCANNING';
+                }
             }
             this.notify();
         }, 1200);
