@@ -5,6 +5,7 @@ import moment from 'moment';
 import {
     filterUrlQuery,
     getAccountType,
+    getAppId,
     getTrustedDomainName,
     isCryptocurrency,
     LocalStore,
@@ -36,6 +37,10 @@ import { getRegion, isMultipliersOnly, isOptionsBlocked } from '_common/utility'
 const LANGUAGE_KEY = 'i18n_language';
 const storage_key = 'current_account';
 const store_name = 'client_store';
+const getDerivV3WSUrl = () => {
+    const appId = getAppId() || 16929;
+    return `wss://ws.derivws.com/websockets/v3?app_id=${appId}&l=en&brand=deriv`;
+};
 
 export default class ClientStore extends BaseStore {
     loginid;
@@ -385,20 +390,25 @@ export default class ClientStore extends BaseStore {
 
             // Strategy 2: Direct WebSocket authorize (handles Deriv API tokens e.g. a1-xxx and OAuth tokens)
             if (!is_authorized) {
-                try {
-                    BinarySocket.setWSUrl(null);
-                    BinarySocket.closeAndOpenNewConnection();
-                    const auth_res = await BinarySocket.send({ authorize: token });
-                    if (auth_res?.authorize?.loginid) {
-                        BinarySocketGeneral.authorizeAccount(auth_res);
-                        is_authorized = true;
+                if (token && /^[\w-]{1,128}$/.test(token) && !token.startsWith('ey')) {
+                    try {
+                        BinarySocket.setWSUrl(getDerivV3WSUrl());
+                        BinarySocket.closeAndOpenNewConnection();
+                        const auth_res = await BinarySocket.send({ authorize: token });
+                        if (auth_res?.authorize?.loginid) {
+                            BinarySocketGeneral.authorizeAccount(auth_res);
+                            is_authorized = true;
+                        }
+                    } catch (wsErr) {
+                        // eslint-disable-next-line no-console
+                        console.warn('[Auth] Direct WebSocket authorization failed:', wsErr);
+                        if (!isEmbeddedMode()) {
+                            clearTokens();
+                        }
+                        BinarySocket.setWSUrl(null);
+                        BinarySocket.closeAndOpenNewConnection();
                     }
-                } catch (wsErr) {
-                    // eslint-disable-next-line no-console
-                    console.warn('[Auth] Direct WebSocket authorization failed:', wsErr);
-                    if (!isEmbeddedMode()) {
-                        clearTokens();
-                    }
+                } else {
                     BinarySocket.setWSUrl(null);
                     BinarySocket.closeAndOpenNewConnection();
                 }
@@ -527,37 +537,58 @@ export default class ClientStore extends BaseStore {
                     this.setIsLoggingIn(true);
                     let authorized = false;
                     try {
-                        const accounts = await fetchAccounts();
+                        const incomingAccounts = data.accounts || data.payload?.accounts;
+                        const accounts =
+                            Array.isArray(incomingAccounts) && incomingAccounts.length > 0
+                                ? incomingAccounts
+                                : await fetchAccounts().catch(() => null);
+
+                        const targetId = incomingAccount || sessionStorage.getItem('active_loginid');
                         const active_acc =
-                            accounts?.find(
-                                a => a.account_id === (incomingAccount || sessionStorage.getItem('active_loginid'))
-                            ) || accounts?.[0];
+                            accounts?.find(a => (a.account_id || a.loginid) === targetId) || accounts?.[0];
+
                         if (active_acc) {
-                            sessionStorage.setItem('active_loginid', active_acc.account_id);
-                            localStorage.setItem('active_loginid', active_acc.account_id);
-                            localStorage.setItem('account_type', active_acc.account_type);
-                            const ws_url = await fetchOTP(active_acc.account_id);
-                            BinarySocket.setWSUrl(ws_url);
-                            BinarySocket.closeAndOpenNewConnection();
-                            await BinarySocket.wait('balance');
-                            authorized = true;
+                            const accId = active_acc.account_id || active_acc.loginid;
+                            const accType = active_acc.account_type || (accId?.startsWith('VR') ? 'demo' : 'real');
+                            sessionStorage.setItem('active_loginid', accId);
+                            localStorage.setItem('active_loginid', accId);
+                            localStorage.setItem('account_type', accType);
+
+                            try {
+                                const ws_url = await fetchOTP(accId);
+                                BinarySocket.setWSUrl(ws_url);
+                                BinarySocket.closeAndOpenNewConnection();
+                                await BinarySocket.wait('balance');
+                                authorized = true;
+                            } catch (otpErr) {
+                                // eslint-disable-next-line no-console
+                                console.warn('[Bridge] fetchOTP failed:', otpErr);
+                            }
                         }
-                    } catch {
-                        // fallback to direct socket authorize
+                    } catch (accErr) {
+                        // eslint-disable-next-line no-console
+                        console.warn('[Bridge] Account setup failed:', accErr);
                     }
 
                     if (!authorized) {
-                        try {
+                        if (incomingToken && /^[\w-]{1,128}$/.test(incomingToken) && !incomingToken.startsWith('ey')) {
+                            try {
+                                BinarySocket.setWSUrl(getDerivV3WSUrl());
+                                BinarySocket.closeAndOpenNewConnection();
+                                const auth_res = await BinarySocket.send({ authorize: incomingToken });
+                                if (auth_res?.authorize?.loginid) {
+                                    BinarySocketGeneral.authorizeAccount(auth_res);
+                                    authorized = true;
+                                }
+                            } catch (err) {
+                                // eslint-disable-next-line no-console
+                                console.warn('[Bridge] Message authorize failed:', err);
+                                BinarySocket.setWSUrl(null);
+                                BinarySocket.closeAndOpenNewConnection();
+                            }
+                        } else {
                             BinarySocket.setWSUrl(null);
                             BinarySocket.closeAndOpenNewConnection();
-                            const auth_res = await BinarySocket.send({ authorize: incomingToken });
-                            if (auth_res?.authorize?.loginid) {
-                                BinarySocketGeneral.authorizeAccount(auth_res);
-                                authorized = true;
-                            }
-                        } catch (err) {
-                            // eslint-disable-next-line no-console
-                            console.warn('[Bridge] Message authorize failed:', err);
                         }
                     }
                     this.setIsLoggingIn(false);

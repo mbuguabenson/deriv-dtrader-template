@@ -113,8 +113,12 @@ const BinarySocketBase = (() => {
                 // Increment reconnect attempt counter
                 reconnect_attempt_count++;
 
-                // Throw error after 3 reconnect attempts
-                if (reconnect_attempt_count >= 3 && typeof config.onConnectionError === 'function') {
+                // Throw error after reconnect attempts (unless embedded)
+                const is_embedded =
+                    typeof window !== 'undefined' &&
+                    (window.top !== window || sessionStorage.getItem('is_embedded') === 'true');
+
+                if (reconnect_attempt_count >= 5 && !is_embedded && typeof config.onConnectionError === 'function') {
                     config.onConnectionError(error_event);
                     reconnect_attempt_count = 0; // Reset counter after throwing error
                 }

@@ -21,6 +21,14 @@ const BinarySocketGeneral = (() => {
     };
 
     const onConnectionError = () => {
+        if (isEmbeddedMode() || (typeof window !== 'undefined' && window.top !== window)) {
+            // eslint-disable-next-line no-console
+            console.warn(
+                '[BinarySocketGeneral] Connection error occurred in embedded mode; suppressing fatal error dialog.'
+            );
+            return;
+        }
+
         localStorage.removeItem('active_loginid');
 
         common_store.setError(true, {
