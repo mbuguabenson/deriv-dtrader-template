@@ -44,6 +44,9 @@ const playSoundTone = (type: 'WIN' | 'LOSS' | 'TRIGGER') => {
 
 type TEngineListener = () => void;
 
+// Key used to persist bot state across page reloads / network drops
+const PERSIST_KEY = 'autotrades_engine_state_v1';
+
 class AutoTradeEngine {
     private isRunning: boolean = false;
     private botStatus: TBotStatus = 'IDLE';
@@ -89,6 +92,8 @@ class AutoTradeEngine {
 
     constructor() {
         this.currentCalculatedStake = this.config.stake;
+        // Restore persisted config on construction
+        this.loadPersistedState();
     }
 
     public subscribe(listener: TEngineListener): () => void {
@@ -129,6 +134,7 @@ class AutoTradeEngine {
     public setConfig(newConfig: Partial<TStrategyConfig>) {
         this.config = { ...this.config, ...newConfig };
         this.recalculateBaseStake();
+        this.persistState();
         this.notify();
     }
 
@@ -138,6 +144,7 @@ class AutoTradeEngine {
         this.differsRunCount = 0;
         this.differsWaitingSafeTicks = 0;
         this.consecutiveOppositeParityCount = 0;
+        this.persistState();
         this.notify();
     }
 
@@ -160,6 +167,73 @@ class AutoTradeEngine {
         }
     }
 
+    // ---------------------------------------------------------------
+    // PERSISTENCE — survives page reloads and network reconnects
+    // ---------------------------------------------------------------
+
+    /** Saves critical bot state to localStorage */
+    private persistState() {
+        try {
+            localStorage.setItem(
+                PERSIST_KEY,
+                JSON.stringify({
+                    wasRunning: this.isRunning,
+                    activeStrategy: this.activeStrategy,
+                    config: this.config,
+                    totalProfit: this.totalProfit,
+                    totalWins: this.totalWins,
+                    totalLosses: this.totalLosses,
+                    consecutiveLosses: this.consecutiveLosses,
+                    savedAt: Date.now(),
+                })
+            );
+        } catch (_e) {
+            // Storage quota — non-critical
+        }
+    }
+
+    /** Loads persisted state from localStorage on startup */
+    private loadPersistedState() {
+        try {
+            const raw = localStorage.getItem(PERSIST_KEY);
+            if (!raw) return;
+            const saved = JSON.parse(raw);
+            // Only restore if saved within the last 24 hours
+            if (!saved.savedAt || Date.now() - saved.savedAt > 24 * 60 * 60 * 1000) return;
+            if (saved.config) this.config = { ...this.config, ...saved.config };
+            if (saved.activeStrategy) this.activeStrategy = saved.activeStrategy;
+            if (typeof saved.totalProfit === 'number') this.totalProfit = saved.totalProfit;
+            if (typeof saved.totalWins === 'number') this.totalWins = saved.totalWins;
+            if (typeof saved.totalLosses === 'number') this.totalLosses = saved.totalLosses;
+            if (typeof saved.consecutiveLosses === 'number') this.consecutiveLosses = saved.consecutiveLosses;
+        } catch (_e) {
+            // Corrupted storage — ignore
+        }
+    }
+
+    /** Returns true if the bot was running before the last page reload */
+    public wasRunningBeforeReload(): boolean {
+        try {
+            const raw = localStorage.getItem(PERSIST_KEY);
+            if (!raw) return false;
+            const saved = JSON.parse(raw);
+            // Only auto-resume if state is fresh (<24h)
+            if (!saved.savedAt || Date.now() - saved.savedAt > 24 * 60 * 60 * 1000) return false;
+            return saved.wasRunning === true;
+        } catch (_e) {
+            return false;
+        }
+    }
+
+    /** Clears persisted state — called when user explicitly stops trading */
+    public clearPersistedState() {
+        try {
+            localStorage.removeItem(PERSIST_KEY);
+        } catch (_e) {
+            // ignore
+        }
+    }
+
     public start() {
         if (this.isRunning) return;
         this.isRunning = true;
@@ -171,16 +245,22 @@ class AutoTradeEngine {
             this.handleTickUpdate(statsMap, activeSymbol);
         });
 
+        this.persistState(); // Save running=true so reload can detect it
         this.notify();
     }
 
-    public stop() {
+    public stop(clearPersist = true) {
         this.isRunning = false;
         this.botStatus = 'IDLE';
         this.isExecutingOrder = false;
         if (this.unsubscribeMarketData) {
             this.unsubscribeMarketData();
             this.unsubscribeMarketData = null;
+        }
+        this.persistState(); // Save running=false
+        if (clearPersist) {
+            // User explicitly stopped — clear so reload won't auto-resume
+            this.clearPersistedState();
         }
         this.notify();
     }
@@ -495,7 +575,7 @@ class AutoTradeEngine {
                 basis: 'stake',
                 contract_type: params.contractType,
                 currency: this.accountCurrency || 'USD',
-                symbol: params.symbol,
+                underlying_symbol: params.symbol,
                 duration: this.config.durationTicks || 1,
                 duration_unit: 't',
             };
