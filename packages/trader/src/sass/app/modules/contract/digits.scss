@@ -45,7 +45,8 @@
         right: 10px;
     }
     &__digit {
-        pointer-events: none;
+        pointer-events: auto;
+        cursor: pointer;
         margin: 0 0.6em;
         text-align: center;
         position: relative;

@@ -93,7 +93,7 @@ const LastDigitPrediction = ({
 
     const getOffset = () => (isMobile() ? digit_offset_mobile : digit_offset);
 
-    const isSelectableDigitType = () => (isMobile() ? trade_type !== TRADE_TYPES.EVEN_ODD : false);
+    const isSelectableDigitType = () => trade_type !== TRADE_TYPES.EVEN_ODD && trade_type !== 'even_odd';
     const digits_array = Object.keys(digits_info)
         .sort((a, b) => +a - +b)
         .map(spot_time => digits_info[+spot_time]);

@@ -63,8 +63,8 @@ const DigitDisplay = ({
         }
     }, [latest_digit, spot, barrier, value, is_lost, is_selected_winning, is_latest, is_won, onLastDigitSpot]);
 
-    const is_digit_selectable = isMobile() && typeof onSelect === 'function' && !status;
-    const is_digit_selected = isMobile() && value === selected_digit && !status;
+    const is_digit_selectable = typeof onSelect === 'function' && !status;
+    const is_digit_selected = value === selected_digit && !status;
     return (
         <div
             className={classNames('digits__digit', {
@@ -79,7 +79,7 @@ const DigitDisplay = ({
                 onSelect(value);
             }}
         >
-            <LastDigitStat is_min={is_min} is_max={is_max} is_selected={is_selected} percentage={percentage} />
+            <LastDigitStat is_min={is_min} is_max={is_max} is_selected={is_selected || is_digit_selected} percentage={percentage} />
             <DesktopWrapper>
                 <Bounce
                     is_visible={!!(is_digit_contract && is_latest && spot && status && has_entry_spot)}
@@ -97,7 +97,7 @@ const DigitDisplay = ({
             <Digit
                 is_latest={is_latest}
                 is_lost={is_lost}
-                is_selected={is_selected}
+                is_selected={is_selected || is_digit_selected}
                 is_won={is_won}
                 percentage={percentage}
                 value={value}

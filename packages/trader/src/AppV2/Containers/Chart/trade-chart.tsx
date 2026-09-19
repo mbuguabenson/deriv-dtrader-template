@@ -65,8 +65,8 @@ const ChartBottomWidgets = observer(({ digits, tick }: TBottomWidgetsParams) => 
 
     const active_tick = tick || tick_data;
 
-    // Render original Digits widget with live pointer and circles on desktop
-    if (!isMobile && show_digits_stats) {
+    // Render original Digits widget on both desktop and mobile without any rectangle card
+    if (show_digits_stats) {
         return (
             <BottomWidgets
                 Widget={
@@ -77,7 +77,7 @@ const ChartBottomWidgets = observer(({ digits, tick }: TBottomWidgetsParams) => 
                         display_status={display_status}
                         is_digit_contract={is_digit_contract}
                         is_ended={is_ended}
-                        is_mobile={false}
+                        is_mobile={isMobile}
                         onDigitChange={onDigitChange}
                         is_trade_page
                         tick={active_tick}
