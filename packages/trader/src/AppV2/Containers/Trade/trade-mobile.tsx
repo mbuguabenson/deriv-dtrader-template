@@ -1,10 +1,11 @@
 import React from 'react';
+import { useHistory } from 'react-router-dom';
 import clsx from 'clsx';
 import { observer } from 'mobx-react-lite';
 
 import { useLocalStorageData } from '@deriv/api';
 import { Loading } from '@deriv/components';
-import { getSymbolDisplayName } from '@deriv/shared';
+import { getSymbolDisplayName, routes } from '@deriv/shared';
 import { useStore } from '@deriv/stores';
 
 import AccumulatorStats from 'AppV2/Components/AccumulatorStats';
@@ -50,8 +51,9 @@ const Trade = observer(() => {
         trade_type_tab,
     } = useTraderStore();
     const { trade_types } = useContractsFor();
+    const history = useHistory();
     useDefaultSymbol(); // This will initialize and set the default symbol
-    const [guide_dtrader_v2] = useLocalStorageData<Record<string, boolean>>('guide_dtrader_v2', {
+    const [_guide_dtrader_v2] = useLocalStorageData<Record<string, boolean>>('guide_dtrader_v2', {
         trade_types_selection: false,
         trade_page: false,
         positions_page: false,
@@ -122,6 +124,28 @@ const Trade = observer(() => {
                         />
                         <div className='trade__market-selector-guide'>
                             <MarketSelector />
+                            <button
+                                type='button'
+                                onClick={() => history.push(routes.autotrades)}
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    background: 'linear-gradient(135deg, rgba(0, 167, 158, 0.2), rgba(255, 68, 79, 0.2))',
+                                    border: '1px solid rgba(0, 167, 158, 0.5)',
+                                    borderRadius: '16px',
+                                    padding: '4px 10px',
+                                    fontSize: '11px',
+                                    fontWeight: 700,
+                                    color: is_dark_mode_on ? '#fff' : '#111',
+                                    cursor: 'pointer',
+                                    marginLeft: 'auto',
+                                    marginRight: '8px',
+                                    whiteSpace: 'nowrap',
+                                }}
+                            >
+                                <span>🤖 Elite Pro</span>
+                            </button>
                             <Guide show_guide_for_selected_contract />
                         </div>
                         {isDigitTradeType(contract_type) && <CurrentSpot />}

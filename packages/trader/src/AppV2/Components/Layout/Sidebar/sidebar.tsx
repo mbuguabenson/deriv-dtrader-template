@@ -84,6 +84,16 @@ const Sidebar = observer(() => {
         setSidebarFlyout(active_sidebar_flyout === 'positions' ? null : 'positions');
     };
 
+    const handleAutotradesClick = () => {
+        setSidebarFlyout(null);
+        history.push(routes.autotrades);
+    };
+
+    const handleTradeClick = () => {
+        setSidebarFlyout(null);
+        history.push(routes.index);
+    };
+
     const handleReportsClick = () => {
         setSidebarFlyout(null);
         history.push(routes.reports);
@@ -99,10 +109,42 @@ const Sidebar = observer(() => {
     };
 
     // Main navigation items
+    const isTradeActive = location.pathname === routes.index;
+    const isAutotradesActive = location.pathname === routes.autotrades;
     const isPositionsActive = active_sidebar_flyout === 'positions';
     const isReportsActive = isActiveRoute(routes.reports);
 
     const navigationItems: TSidebarItem[] = [
+        {
+            id: 'trade',
+            icon: (
+                <svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke={isTradeActive ? 'var(--color-nav-item-active)' : 'var(--color-text-primary)'} strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
+                    <line x1='18' y1='20' x2='18' y2='10' />
+                    <line x1='12' y1='20' x2='12' y2='4' />
+                    <line x1='6' y1='20' x2='6' y2='14' />
+                </svg>
+            ),
+            label: localize('Trade'),
+            onClick: handleTradeClick,
+            isActive: isTradeActive,
+            dataTestId: 'dt_sidebar_trade',
+        },
+        {
+            id: 'autotrades',
+            icon: (
+                <svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke={isAutotradesActive ? 'var(--color-nav-item-active)' : 'var(--color-text-primary)'} strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
+                    <rect x='3' y='11' width='18' height='10' rx='2' />
+                    <circle cx='12' cy='5' r='2' />
+                    <path d='M12 7v4' />
+                    <line x1='8' y1='16' x2='8.01' y2='16' />
+                    <line x1='16' y1='16' x2='16.01' y2='16' />
+                </svg>
+            ),
+            label: localize('Autotrades'),
+            onClick: handleAutotradesClick,
+            isActive: isAutotradesActive,
+            dataTestId: 'dt_sidebar_autotrades',
+        },
         {
             id: 'positions',
             icon: isPositionsActive ? (
@@ -217,7 +259,7 @@ const Sidebar = observer(() => {
             <aside
                 ref={sidebar_ref}
                 className={classNames('sidebar', {
-                    sidebar__hidden: !isActiveRoute(routes.index),
+                    sidebar__hidden: !isActiveRoute(routes.index) && !isActiveRoute(routes.autotrades),
                 })}
                 data-testid='dt_sidebar'
             >
@@ -238,7 +280,7 @@ const Sidebar = observer(() => {
                 <nav className='sidebar__nav'>
                     <div className='sidebar__nav-main'>
                         {navigationItems.map(item => {
-                            const shouldShow = item.id === 'home' || is_logged_in;
+                            const shouldShow = item.id === 'home' || item.id === 'trade' || item.id === 'autotrades' || is_logged_in;
 
                             if (!shouldShow) return null;
 

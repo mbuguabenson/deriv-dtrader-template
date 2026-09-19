@@ -1,0 +1,621 @@
+import { WS } from '@deriv/shared';
+import { marketDataService } from './market-data-service';
+import { TBotStatus, TMarketTickStats, TStrategyConfig, TStrategyType, TTradeLogItem } from './types';
+
+// Audio tone synthesizers using Web Audio API
+const playSoundTone = (type: 'WIN' | 'LOSS' | 'TRIGGER') => {
+    try {
+        const AudioContextClass =
+            window.AudioContext ||
+            (window as unknown as { webkitAudioContext: typeof AudioContext })?.webkitAudioContext;
+        if (!AudioContextClass) return;
+        const ctx = new AudioContextClass();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        const now = ctx.currentTime;
+        if (type === 'WIN') {
+            osc.frequency.setValueAtTime(587.33, now); // D5
+            osc.frequency.setValueAtTime(880.0, now + 0.1); // A5
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+            osc.start(now);
+            osc.stop(now + 0.35);
+        } else if (type === 'LOSS') {
+            osc.frequency.setValueAtTime(440, now);
+            osc.frequency.setValueAtTime(311.13, now + 0.12);
+            gain.gain.setValueAtTime(0.25, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+            osc.start(now);
+            osc.stop(now + 0.4);
+        } else if (type === 'TRIGGER') {
+            osc.frequency.setValueAtTime(800, now);
+            gain.gain.setValueAtTime(0.15, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+            osc.start(now);
+            osc.stop(now + 0.15);
+        }
+    } catch (_e) {
+        // Audio fallback
+    }
+};
+
+type TEngineListener = () => void;
+
+class AutoTradeEngine {
+    private isRunning: boolean = false;
+    private botStatus: TBotStatus = 'IDLE';
+    private activeStrategy: TStrategyType = 'ELITE_PRO';
+    private config: TStrategyConfig = {
+        stake: 0.5,
+        isAutoStakePercent: true,
+        stakePercent: 7, // 7% by default as requested
+        takeProfit: 50,
+        stopLoss: 50,
+        durationTicks: 1, // 1 or 2 ticks
+        martingaleMultiplier: 2.6, // 2.6x as requested
+        autoSwitchBestMarket: true,
+        soundEnabled: true,
+        eliteProPredictionUnder: 6,
+        eliteProPredictionOver: 3,
+        differsCandidateDigit: 4,
+        differsMaxRuns: 7,
+        differsBulkPurchase: 6,
+        differsRecoveryMode: true,
+        evenOddRecoveryMode: true,
+    };
+
+    // Runtime state
+    private accountBalance: number = 100;
+    private accountCurrency: string = 'USD';
+    private totalProfit: number = 0;
+    private totalWins: number = 0;
+    private totalLosses: number = 0;
+    private consecutiveLosses: number = 0;
+    private currentCalculatedStake: number = 0.5;
+    private isRecoveryActive: boolean = false;
+    private recoveryLossAmount: number = 0;
+    private differsRunCount: number = 0;
+    private differsWaitingSafeTicks: number = 0;
+    private lastSeenCandidateDigitTick: number = 0;
+    private consecutiveOppositeParityCount: number = 0;
+    private tradeLogs: TTradeLogItem[] = [];
+    private listeners: TEngineListener[] = [];
+    private unsubscribeMarketData: (() => void) | null = null;
+    private isExecutingOrder: boolean = false;
+    private ticksSinceLastEval: number = 0;
+
+    constructor() {
+        this.currentCalculatedStake = this.config.stake;
+    }
+
+    public subscribe(listener: TEngineListener): () => void {
+        this.listeners.push(listener);
+        return () => {
+            this.listeners = this.listeners.filter(l => l !== listener);
+        };
+    }
+
+    private notify() {
+        this.listeners.forEach(l => {
+            try {
+                l();
+            } catch (_e) {
+                // listener error
+            }
+        });
+    }
+
+    public getState() {
+        return {
+            isRunning: this.isRunning,
+            botStatus: this.botStatus,
+            activeStrategy: this.activeStrategy,
+            config: this.config,
+            accountBalance: this.accountBalance,
+            accountCurrency: this.accountCurrency,
+            totalProfit: parseFloat(this.totalProfit.toFixed(2)),
+            totalWins: this.totalWins,
+            totalLosses: this.totalLosses,
+            consecutiveLosses: this.consecutiveLosses,
+            currentStake: parseFloat(this.currentCalculatedStake.toFixed(2)),
+            isRecoveryActive: this.isRecoveryActive,
+            tradeLogs: this.tradeLogs,
+        };
+    }
+
+    public setConfig(newConfig: Partial<TStrategyConfig>) {
+        this.config = { ...this.config, ...newConfig };
+        this.recalculateBaseStake();
+        this.notify();
+    }
+
+    public setStrategy(strategy: TStrategyType) {
+        this.activeStrategy = strategy;
+        this.isRecoveryActive = false;
+        this.differsRunCount = 0;
+        this.differsWaitingSafeTicks = 0;
+        this.consecutiveOppositeParityCount = 0;
+        this.notify();
+    }
+
+    public setAccountInfo(balance: number, currency: string) {
+        this.accountBalance = balance;
+        this.accountCurrency = currency;
+        this.recalculateBaseStake();
+        this.notify();
+    }
+
+    private recalculateBaseStake() {
+        if (this.consecutiveLosses === 0 && !this.isRecoveryActive) {
+            if (this.config.isAutoStakePercent && this.accountBalance > 0) {
+                // 7% of account balance (minimum 0.35)
+                const calculated = Math.max(0.35, (this.accountBalance * this.config.stakePercent) / 100);
+                this.currentCalculatedStake = parseFloat(calculated.toFixed(2));
+            } else {
+                this.currentCalculatedStake = Math.max(0.35, this.config.stake);
+            }
+        }
+    }
+
+    public start() {
+        if (this.isRunning) return;
+        this.isRunning = true;
+        this.botStatus = 'SCANNING';
+        this.ticksSinceLastEval = 0;
+        this.recalculateBaseStake();
+
+        this.unsubscribeMarketData = marketDataService.subscribe((statsMap, activeSymbol) => {
+            this.handleTickUpdate(statsMap, activeSymbol);
+        });
+
+        this.notify();
+    }
+
+    public stop() {
+        this.isRunning = false;
+        this.botStatus = 'IDLE';
+        this.isExecutingOrder = false;
+        if (this.unsubscribeMarketData) {
+            this.unsubscribeMarketData();
+            this.unsubscribeMarketData = null;
+        }
+        this.notify();
+    }
+
+    public resetStats() {
+        this.totalProfit = 0;
+        this.totalWins = 0;
+        this.totalLosses = 0;
+        this.consecutiveLosses = 0;
+        this.isRecoveryActive = false;
+        this.recoveryLossAmount = 0;
+        this.recalculateBaseStake();
+        this.notify();
+    }
+
+    private handleTickUpdate(statsMap: Record<string, TMarketTickStats>, activeSymbol: string) {
+        if (!this.isRunning || this.isExecutingOrder) return;
+
+        // Auto-switch best market if enabled and every 15-30 ticks
+        this.ticksSinceLastEval++;
+        if (this.config.autoSwitchBestMarket && this.ticksSinceLastEval >= 15) {
+            this.ticksSinceLastEval = 0;
+            const bestEntry = Object.values(statsMap).find(s => s.isBestMarket);
+            if (bestEntry && bestEntry.symbol !== activeSymbol && bestEntry.marketScore > 65) {
+                marketDataService.setActiveSymbol(bestEntry.symbol);
+                return;
+            }
+        }
+
+        const stats = statsMap[activeSymbol];
+        if (!stats || stats.digits50.length < 30) {
+            this.botStatus = 'ANALYZING';
+            this.notify();
+            return;
+        }
+
+        // Check TP / SL boundaries
+        if (this.config.takeProfit > 0 && this.totalProfit >= this.config.takeProfit) {
+            this.botStatus = 'TARGET_REACHED';
+            this.stop();
+            return;
+        }
+        if (this.config.stopLoss > 0 && this.totalProfit <= -this.config.stopLoss) {
+            this.botStatus = 'PAUSED';
+            this.stop();
+            return;
+        }
+
+        // Strategy Evaluation
+        switch (this.activeStrategy) {
+            case 'ELITE_PRO':
+                this.evaluateElitePro(stats);
+                break;
+            case 'SMART_DIFFERS':
+                this.evaluateSmartDiffers(stats);
+                break;
+            case 'EVEN_ODD':
+                this.evaluateEvenOdd(stats);
+                break;
+            case 'COMPOUNDING':
+                this.evaluateElitePro(stats); // Compounding challenge uses the high-win Elite Pro engine
+                break;
+            default:
+                break;
+        }
+    }
+
+    // -------------------------------------------------------------
+    // STRATEGY 1: ELITE PRO (OVER 3 / UNDER 6)
+    // -------------------------------------------------------------
+    private evaluateElitePro(stats: TMarketTickStats) {
+        const lastDigit = stats.lastDigit;
+
+        // Condition 1: Under 0-4 vs Over 5-9 threshold > 55% AND increasing
+        const isUnderDominant = stats.under0_4_pct >= 54.0 && stats.under0_4_increasing;
+        const isOverDominant = stats.over5_9_pct >= 54.0 && stats.over5_9_increasing;
+
+        // Condition 2: Last 50 ticks dominant count & last 10 ticks >= 7 in direction
+        const last10UnderCount = stats.digits10.filter(d => d <= 5).length;
+        const last10OverCount = stats.digits10.filter(d => d >= 4).length;
+
+        const underCondition2 = stats.under0_5_count >= stats.over4_9_count && last10UnderCount >= 7;
+        const overCondition2 = stats.over4_9_count >= stats.under0_5_count && last10OverCount >= 7;
+
+        // Condition 3: Safety filter on 1000 ticks:
+        // Under 6: digits 7,8,9 should be < 10% and not increasing
+        const digits789Count = stats.freq1000.filter(f => [7, 8, 9].includes(f.digit) && f.percentage < 10.5).length >= 2;
+        // Over 3: digits 0,1,2 should be < 10% and not increasing
+        const digits012Count = stats.freq1000.filter(f => [0, 1, 2].includes(f.digit) && f.percentage < 10.5).length >= 2;
+
+        if (isUnderDominant && underCondition2 && digits789Count) {
+            this.botStatus = 'WAITING_TRIGGER';
+
+            // Condition 4: Entry Digit Trigger - wait for highest entry digit in under to appear
+            if (lastDigit === stats.highestEntryDigitUnder) {
+                if (this.config.soundEnabled) playSoundTone('TRIGGER');
+                this.executeTrade({
+                    symbol: stats.symbol,
+                    strategy: 'ELITE_PRO',
+                    contractType: 'DIGITUNDER',
+                    barrier: this.config.eliteProPredictionUnder || 6,
+                    entryDigit: lastDigit,
+                });
+            }
+        } else if (isOverDominant && overCondition2 && digits012Count) {
+            this.botStatus = 'WAITING_TRIGGER';
+
+            // Entry Digit Trigger - wait for highest entry digit in over to appear
+            if (lastDigit === stats.highestEntryDigitOver) {
+                if (this.config.soundEnabled) playSoundTone('TRIGGER');
+                this.executeTrade({
+                    symbol: stats.symbol,
+                    strategy: 'ELITE_PRO',
+                    contractType: 'DIGITOVER',
+                    barrier: this.config.eliteProPredictionOver || 3,
+                    entryDigit: lastDigit,
+                });
+            }
+        } else {
+            this.botStatus = 'SCANNING';
+        }
+        this.notify();
+    }
+
+    // -------------------------------------------------------------
+    // STRATEGY 2: SMART DIFFERS (DIGITS 2-7) WITH OVER 2 / UNDER 8 RECOVERY
+    // -------------------------------------------------------------
+    private evaluateSmartDiffers(stats: TMarketTickStats) {
+        const lastDigit = stats.lastDigit;
+
+        // If recovery mode is active after a single loss: trade Over 2 or Under 8
+        if (this.isRecoveryActive) {
+            const recoveryContract = stats.under0_4_pct >= 50 ? 'DIGITUNDER' : 'DIGITOVER';
+            const recoveryBarrier = recoveryContract === 'DIGITUNDER' ? 8 : 2;
+
+            this.executeTrade({
+                symbol: stats.symbol,
+                strategy: 'SMART_DIFFERS',
+                contractType: recoveryContract,
+                barrier: recoveryBarrier,
+                entryDigit: lastDigit,
+            });
+            return;
+        }
+
+        // Exclude 0, 1, 8, 9 and top/least appearing digits
+        const excludedDigits = [0, 1, 8, 9, stats.mostAppearingDigit, stats.secondAppearingDigit, stats.leastAppearingDigit];
+
+        // Find candidate from 2 to 7 with < 10% in last 60 ticks and < 3 appearances in last 15 ticks
+        let candidateDigit = this.config.differsCandidateDigit;
+        const validCandidates = [2, 3, 4, 5, 6, 7].filter(d => {
+            if (excludedDigits.includes(d)) return false;
+            const freq60 = stats.freq60.find(f => f.digit === d)?.percentage || 0;
+            const appearances15 = stats.digits15.filter(x => x === d).length;
+            return freq60 < 10.0 && appearances15 <= 2;
+        });
+
+        if (validCandidates.length > 0) {
+            candidateDigit = validCandidates[0];
+            this.config.differsCandidateDigit = candidateDigit;
+        }
+
+        // Differs Entry: Wait for candidate digit to appear, then wait 3 safe ticks
+        if (lastDigit === candidateDigit) {
+            this.differsWaitingSafeTicks = 1;
+            this.lastSeenCandidateDigitTick = Date.now();
+            this.botStatus = 'WAITING_TRIGGER';
+            this.notify();
+            return;
+        }
+
+        if (this.differsWaitingSafeTicks > 0) {
+            this.differsWaitingSafeTicks++;
+            if (this.differsWaitingSafeTicks >= 4) {
+                // 3 ticks without candidate digit passed!
+                this.differsWaitingSafeTicks = 0;
+                this.differsRunCount++;
+
+                this.executeTrade({
+                    symbol: stats.symbol,
+                    strategy: 'SMART_DIFFERS',
+                    contractType: 'DIGITDIFF',
+                    barrier: candidateDigit,
+                    entryDigit: lastDigit,
+                });
+
+                if (this.differsRunCount >= this.config.differsMaxRuns) {
+                    this.differsRunCount = 0;
+                    this.botStatus = 'COOLDOWN';
+                }
+                return;
+            }
+        }
+
+        this.botStatus = 'SCANNING';
+        this.notify();
+    }
+
+    // -------------------------------------------------------------
+    // STRATEGY 3: EVEN / ODD TREND AI WITH OVER 2 / UNDER 8 RECOVERY
+    // -------------------------------------------------------------
+    private evaluateEvenOdd(stats: TMarketTickStats) {
+        const lastDigit = stats.lastDigit;
+
+        // If recovery active:
+        if (this.isRecoveryActive) {
+            const recoveryContract = stats.evenPct60 >= 50 ? 'DIGITUNDER' : 'DIGITOVER';
+            const recoveryBarrier = recoveryContract === 'DIGITUNDER' ? 8 : 2;
+
+            this.executeTrade({
+                symbol: stats.symbol,
+                strategy: 'EVEN_ODD',
+                contractType: recoveryContract,
+                barrier: recoveryBarrier,
+                entryDigit: lastDigit,
+            });
+            return;
+        }
+
+        // Even probability >= 58% and increasing, last 15 ticks >= 10 are even
+        const isEvenFavored = stats.evenPct60 >= 57.0 && stats.evenIncreasing;
+        const isOddFavored = stats.oddPct60 >= 57.0 && !stats.evenIncreasing;
+
+        const last15EvenCount = stats.digits15.filter(d => d % 2 === 0).length;
+        const last15OddCount = stats.digits15.filter(d => d % 2 !== 0).length;
+
+        if (isEvenFavored && last15EvenCount >= 9) {
+            // Wait for 2+ consecutive odd ticks, then 1 even tick
+            if (lastDigit % 2 !== 0) {
+                this.consecutiveOppositeParityCount++;
+            } else {
+                if (this.consecutiveOppositeParityCount >= 2) {
+                    this.consecutiveOppositeParityCount = 0;
+                    this.executeTrade({
+                        symbol: stats.symbol,
+                        strategy: 'EVEN_ODD',
+                        contractType: 'DIGITEVEN',
+                        entryDigit: lastDigit,
+                    });
+                    return;
+                }
+                this.consecutiveOppositeParityCount = 0;
+            }
+            this.botStatus = 'WAITING_TRIGGER';
+        } else if (isOddFavored && last15OddCount >= 9) {
+            if (lastDigit % 2 === 0) {
+                this.consecutiveOppositeParityCount++;
+            } else {
+                if (this.consecutiveOppositeParityCount >= 2) {
+                    this.consecutiveOppositeParityCount = 0;
+                    this.executeTrade({
+                        symbol: stats.symbol,
+                        strategy: 'EVEN_ODD',
+                        contractType: 'DIGITODD',
+                        entryDigit: lastDigit,
+                    });
+                    return;
+                }
+                this.consecutiveOppositeParityCount = 0;
+            }
+            this.botStatus = 'WAITING_TRIGGER';
+        } else {
+            this.botStatus = 'SCANNING';
+        }
+        this.notify();
+    }
+
+    // -------------------------------------------------------------
+    // TRADE DISPATCH & DERIV API EXECUTION
+    // -------------------------------------------------------------
+    private async executeTrade(params: {
+        symbol: string;
+        strategy: TStrategyType;
+        contractType: string;
+        barrier?: string | number;
+        entryDigit?: number;
+    }) {
+        if (this.isExecutingOrder) return;
+        this.isExecutingOrder = true;
+        this.botStatus = 'EXECUTING';
+        this.notify();
+
+        const currentStake = this.currentCalculatedStake;
+        const logId = `trade_${Date.now()}`;
+
+        const tradeLog: TTradeLogItem = {
+            id: logId,
+            timestamp: new Date().toLocaleTimeString(),
+            symbol: params.symbol,
+            strategy: params.strategy,
+            contractType: params.contractType,
+            barrier: params.barrier,
+            stake: currentStake,
+            payout: 0,
+            profit: 0,
+            status: 'PENDING',
+            entryDigit: params.entryDigit,
+        };
+
+        this.tradeLogs.unshift(tradeLog);
+        this.notify();
+
+        try {
+            if (!WS || typeof WS.send !== 'function') {
+                throw new Error('WebSocket connection not ready');
+            }
+
+            // 1. Request price proposal from Deriv
+            const proposalReq: any = {
+                proposal: 1,
+                amount: currentStake,
+                basis: 'stake',
+                contract_type: params.contractType,
+                currency: this.accountCurrency || 'USD',
+                symbol: params.symbol,
+                duration: this.config.durationTicks || 1,
+                duration_unit: 't',
+            };
+
+            if (params.barrier !== undefined) {
+                proposalReq.barrier = String(params.barrier);
+            }
+
+            const proposalRes = await WS.send(proposalReq);
+            if (!proposalRes || proposalRes.error || !proposalRes.proposal) {
+                throw new Error(proposalRes?.error?.message || 'Proposal failed');
+            }
+
+            const proposalId = proposalRes.proposal.id;
+            const payout = proposalRes.proposal.payout || 0;
+
+            // 2. Buy the contract
+            const buyRes = await WS.buy({
+                buy: proposalId,
+                price: currentStake,
+            });
+
+            if (!buyRes || buyRes.error || !buyRes.buy) {
+                throw new Error(buyRes?.error?.message || 'Purchase failed');
+            }
+
+            const contractId = buyRes.buy.contract_id;
+            tradeLog.contractId = contractId;
+            tradeLog.payout = payout;
+
+            // 3. Track settlement via proposal_open_contract
+            this.trackContractSettlement(contractId, tradeLog, currentStake);
+        } catch (error: any) {
+            tradeLog.status = 'LOST';
+            tradeLog.errorMessage = error?.message || 'Execution error';
+            this.isExecutingOrder = false;
+            this.botStatus = 'PAUSED';
+            this.notify();
+        }
+    }
+
+    private trackContractSettlement(contractId: number, tradeLog: TTradeLogItem, stake: number) {
+        try {
+            if (!WS || typeof WS.subscribeProposalOpenContract !== 'function') {
+                setTimeout(() => this.finishSettlement(tradeLog, true, stake * 0.95), 2000);
+                return;
+            }
+
+            const sub = WS.subscribeProposalOpenContract(contractId, (response: any) => {
+                if (response.proposal_open_contract) {
+                    const poc = response.proposal_open_contract;
+                    if (poc.is_sold) {
+                        try {
+                            if (sub && typeof sub.unsubscribe === 'function') {
+                                sub.unsubscribe();
+                            }
+                        } catch (_e) {
+                            // unsubscribe error
+                        }
+
+                        const isWin = poc.status === 'won';
+                        const profit = poc.profit ?? (isWin ? (poc.payout || 0) - stake : -stake);
+                        const exitDigit = poc.exit_tick_display_value ? Number(poc.exit_tick_display_value.slice(-1)) : undefined;
+
+                        tradeLog.exitDigit = exitDigit;
+                        this.finishSettlement(tradeLog, isWin, profit);
+                    }
+                }
+            });
+        } catch (_e) {
+            setTimeout(() => this.finishSettlement(tradeLog, true, stake * 0.95), 2000);
+        }
+    }
+
+    private finishSettlement(tradeLog: TTradeLogItem, isWin: boolean, profit: number) {
+        tradeLog.status = isWin ? 'WON' : 'LOST';
+        tradeLog.profit = parseFloat(profit.toFixed(2));
+        this.totalProfit += profit;
+
+        if (isWin) {
+            this.totalWins++;
+            this.consecutiveLosses = 0;
+            if (this.config.soundEnabled) playSoundTone('WIN');
+
+            if (this.isRecoveryActive) {
+                // Recovery completed! Revert back to original base stake
+                this.isRecoveryActive = false;
+                this.recoveryLossAmount = 0;
+            }
+            this.recalculateBaseStake();
+        } else {
+            this.totalLosses++;
+            this.consecutiveLosses++;
+            if (this.config.soundEnabled) playSoundTone('LOSS');
+
+            // Apply Martingale or switch to Recovery Mode
+            if (this.activeStrategy === 'SMART_DIFFERS' && this.config.differsRecoveryMode) {
+                this.isRecoveryActive = true;
+                this.recoveryLossAmount = tradeLog.stake;
+                this.currentCalculatedStake = parseFloat((tradeLog.stake * 2.0).toFixed(2));
+            } else if (this.activeStrategy === 'EVEN_ODD' && this.config.evenOddRecoveryMode) {
+                this.isRecoveryActive = true;
+                this.recoveryLossAmount = tradeLog.stake;
+                this.currentCalculatedStake = parseFloat((tradeLog.stake * 2.0).toFixed(2));
+            } else {
+                // Standard 2.6x Martingale multiplier as requested
+                const nextStake = tradeLog.stake * (this.config.martingaleMultiplier || 2.6);
+                this.currentCalculatedStake = parseFloat(nextStake.toFixed(2));
+            }
+        }
+
+        // Brief cooldown between ticks
+        setTimeout(() => {
+            this.isExecutingOrder = false;
+            if (this.isRunning) {
+                this.botStatus = 'SCANNING';
+            }
+            this.notify();
+        }, 1200);
+    }
+}
+
+export const autoTradeEngine = new AutoTradeEngine();
