@@ -693,6 +693,9 @@ class AutoTradeEngine {
         };
 
         this.tradeLogs.unshift(tradeLog);
+        if (this.tradeLogs.length > 150) {
+            this.tradeLogs.pop();
+        }
         this.notify();
 
         try {
