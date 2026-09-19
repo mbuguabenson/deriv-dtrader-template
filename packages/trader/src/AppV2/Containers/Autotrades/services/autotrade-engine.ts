@@ -68,6 +68,8 @@ class AutoTradeEngine {
         differsBulkPurchase: 6,
         differsRecoveryMode: true,
         evenOddRecoveryMode: true,
+        interlockingPair: 'EVEN_ODD',
+        interlockingFlipOnLoss: true,
     };
 
     // Runtime state
@@ -84,6 +86,8 @@ class AutoTradeEngine {
     private differsWaitingSafeTicks: number = 0;
     private lastSeenCandidateDigitTick: number = 0;
     private consecutiveOppositeParityCount: number = 0;
+    private interlockingLastContract: string | null = null;
+    private interlockingLastWon: boolean = true;
     private tradeLogs: TTradeLogItem[] = [];
     private listeners: TEngineListener[] = [];
     private unsubscribeMarketData: (() => void) | null = null;
@@ -323,6 +327,9 @@ class AutoTradeEngine {
             case 'COMPOUNDING':
                 this.evaluateElitePro(stats); // Compounding challenge uses the high-win Elite Pro engine
                 break;
+            case 'INTERLOCKING':
+                this.evaluateInterlocking(stats);
+                break;
             default:
                 break;
         }
@@ -529,6 +536,84 @@ class AutoTradeEngine {
     }
 
     // -------------------------------------------------------------
+    // STRATEGY 4: INTERLOCKING AI ENGINE
+    // -------------------------------------------------------------
+    private evaluateInterlocking(stats: TMarketTickStats) {
+        const lastDigit = stats.lastDigit;
+
+        if (this.config.interlockingPair === 'EVEN_ODD') {
+            let targetContract = 'DIGITEVEN';
+
+            if (!this.interlockingLastWon && this.config.interlockingFlipOnLoss && this.interlockingLastContract) {
+                // FLIP INTERLOCK: Invert to the opposite leg immediately after a loss
+                targetContract = this.interlockingLastContract === 'DIGITEVEN' ? 'DIGITODD' : 'DIGITEVEN';
+            } else {
+                // Trend-following primary leg
+                targetContract = stats.evenPct60 >= stats.oddPct60 ? 'DIGITEVEN' : 'DIGITODD';
+            }
+
+            // Entry confirmation filter:
+            // For DIGITEVEN: trigger when an odd digit precedes, breaking the counter-trend
+            // For DIGITODD: trigger when an even digit precedes
+            const isEvenTarget = targetContract === 'DIGITEVEN';
+            const triggerReady = isEvenTarget ? lastDigit % 2 !== 0 : lastDigit % 2 === 0;
+
+            if (triggerReady) {
+                if (this.config.soundEnabled) playSoundTone('TRIGGER');
+                this.executeTrade({
+                    symbol: stats.symbol,
+                    strategy: 'INTERLOCKING',
+                    contractType: targetContract,
+                    entryDigit: lastDigit,
+                });
+            } else {
+                this.botStatus = 'WAITING_TRIGGER';
+                this.notify();
+            }
+        } else {
+            // OVER_UNDER Interlocking Pair
+            let targetContract = 'DIGITUNDER';
+            let targetBarrier: number = this.config.eliteProPredictionUnder || 6;
+
+            if (!this.interlockingLastWon && this.config.interlockingFlipOnLoss && this.interlockingLastContract) {
+                // Flip interlock between Under 6 and Over 3
+                if (this.interlockingLastContract === 'DIGITUNDER') {
+                    targetContract = 'DIGITOVER';
+                    targetBarrier = this.config.eliteProPredictionOver || 3;
+                } else {
+                    targetContract = 'DIGITUNDER';
+                    targetBarrier = this.config.eliteProPredictionUnder || 6;
+                }
+            } else {
+                // Dominant side selection
+                if (stats.over5_9_pct > stats.under0_4_pct) {
+                    targetContract = 'DIGITOVER';
+                    targetBarrier = this.config.eliteProPredictionOver || 3;
+                } else {
+                    targetContract = 'DIGITUNDER';
+                    targetBarrier = this.config.eliteProPredictionUnder || 6;
+                }
+            }
+
+            // Entry trigger
+            const shouldTrigger = targetContract === 'DIGITUNDER' ? lastDigit >= 4 : lastDigit <= 5;
+            if (shouldTrigger) {
+                if (this.config.soundEnabled) playSoundTone('TRIGGER');
+                this.executeTrade({
+                    symbol: stats.symbol,
+                    strategy: 'INTERLOCKING',
+                    contractType: targetContract,
+                    barrier: targetBarrier,
+                    entryDigit: lastDigit,
+                });
+            } else {
+                this.botStatus = 'WAITING_TRIGGER';
+                this.notify();
+            }
+        }
+    }
+
+    // -------------------------------------------------------------
     // TRADE DISPATCH & DERIV API EXECUTION
     // -------------------------------------------------------------
     private async executeTrade(params: {
@@ -700,6 +785,10 @@ class AutoTradeEngine {
         tradeLog.profit = parseFloat(profit.toFixed(2));
         this.totalProfit += profit;
 
+        // Interlock state tracking
+        this.interlockingLastContract = tradeLog.contractType;
+        this.interlockingLastWon = isWin;
+
         if (isWin) {
             this.totalWins++;
             this.consecutiveLosses = 0;
@@ -725,6 +814,10 @@ class AutoTradeEngine {
                 this.isRecoveryActive = true;
                 this.recoveryLossAmount = tradeLog.stake;
                 this.currentCalculatedStake = parseFloat((tradeLog.stake * 2.0).toFixed(2));
+            } else if (this.activeStrategy === 'INTERLOCKING') {
+                // Interlocking tiered recovery: 2.1x split multiplier on the flipped contract
+                const nextStake = tradeLog.stake * (this.config.martingaleMultiplier || 2.1);
+                this.currentCalculatedStake = parseFloat(nextStake.toFixed(2));
             } else {
                 // Standard 2.6x Martingale multiplier as requested
                 const nextStake = tradeLog.stake * (this.config.martingaleMultiplier || 2.6);

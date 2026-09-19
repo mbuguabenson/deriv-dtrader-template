@@ -36,7 +36,7 @@ export type TMarketTickStats = {
     isBestMarket: boolean;
 };
 
-export type TStrategyType = 'ELITE_PRO' | 'SMART_DIFFERS' | 'EVEN_ODD' | 'COMPOUNDING';
+export type TStrategyType = 'ELITE_PRO' | 'SMART_DIFFERS' | 'EVEN_ODD' | 'COMPOUNDING' | 'INTERLOCKING';
 
 export type TBotStatus =
     | 'IDLE'
@@ -94,4 +94,6 @@ export type TStrategyConfig = {
     differsBulkPurchase: number; // default 6
     differsRecoveryMode: boolean; // 2x on Over 2 / Under 8
     evenOddRecoveryMode: boolean;
+    interlockingPair: 'EVEN_ODD' | 'OVER_UNDER';
+    interlockingFlipOnLoss: boolean;
 };

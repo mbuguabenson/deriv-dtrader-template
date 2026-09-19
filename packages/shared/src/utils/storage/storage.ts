@@ -236,20 +236,36 @@ CookieStorage.prototype = {
 };
 
 export const removeCookies = (...cookie_names: string[]) => {
-    const domains = [`.${document.domain.split('.').slice(-2).join('.')}`, `.${document.domain}`];
+    const hostname = typeof window !== 'undefined' && window.location ? window.location.hostname : '';
+    // vercel.app, pages.dev, github.io are public suffixes — setting/removing with .vercel.app domain is rejected by browsers
+    const is_public_suffix = /vercel\.app$|pages\.dev$|github\.io$/.test(hostname);
+    const domain_parts = hostname.split('.');
+    const base_domain = domain_parts.length >= 2 ? domain_parts.slice(-2).join('.') : hostname;
 
-    let parent_path = window.location.pathname.split('/', 2)[1];
+    const domains: string[] = [];
+    if (!is_public_suffix && base_domain && base_domain !== hostname) {
+        domains.push(`.${base_domain}`);
+    }
+    if (hostname && !is_public_suffix) {
+        domains.push(`.${hostname}`);
+    }
+
+    let parent_path =
+        typeof window !== 'undefined' && window.location ? window.location.pathname.split('/', 2)[1] : '';
     if (parent_path !== '') {
         parent_path = `/${parent_path}`;
     }
 
     cookie_names.forEach(c => {
-        Cookies.remove(c, { path: '/', domain: domains[0] });
-        Cookies.remove(c, { path: '/', domain: domains[1] });
+        domains.forEach(d => {
+            Cookies.remove(c, { path: '/', domain: d });
+        });
+        Cookies.remove(c, { path: '/' });
         Cookies.remove(c);
-        if (new RegExp(c).test(document.cookie) && parent_path) {
-            Cookies.remove(c, { path: parent_path, domain: domains[0] });
-            Cookies.remove(c, { path: parent_path, domain: domains[1] });
+        if (typeof document !== 'undefined' && new RegExp(c).test(document.cookie) && parent_path) {
+            domains.forEach(d => {
+                Cookies.remove(c, { path: parent_path, domain: d });
+            });
             Cookies.remove(c, { path: parent_path });
         }
     });

@@ -60,6 +60,13 @@ export const StrategyController: React.FC<TStrategyControllerProps> = ({
                 >
                     📈 Compounding Challenge
                 </button>
+                <button
+                    type='button'
+                    className={`strategy-tab-btn ${activeStrategy === 'INTERLOCKING' ? 'active' : ''}`}
+                    onClick={() => onSelectStrategy('INTERLOCKING')}
+                >
+                    🔗 Interlocking AI
+                </button>
             </div>
 
             {/* Strategy Description Banner */}
@@ -82,6 +89,11 @@ export const StrategyController: React.FC<TStrategyControllerProps> = ({
                 {activeStrategy === 'COMPOUNDING' && (
                     <p>
                         <strong>Compounding Auto-Trader:</strong> Automatically executes high-probability trades towards the target profit for each hour/day, locking in profits and auto-ticking challenge milestones!
+                    </p>
+                )}
+                {activeStrategy === 'INTERLOCKING' && (
+                    <p>
+                        <strong>Interlocking AI Engine:</strong> Dynamically paired contract engine with automatic state-flip on loss. Alternates between complementary contracts (Even ↔ Odd or Under 6 ↔ Over 3), preventing streak traps and enforcing strict atomic execution locks.
                     </p>
                 )}
             </div>
@@ -286,6 +298,31 @@ export const StrategyController: React.FC<TStrategyControllerProps> = ({
                         >
                             {config.evenOddRecoveryMode ? 'Over 2 / Under 8 Recovery Enabled' : 'Disabled'}
                         </button>
+                    </div>
+                )}
+
+                {activeStrategy === 'INTERLOCKING' && (
+                    <div className='param-group'>
+                        <div className='param-header-label'>
+                            <span>Interlocking Pair</span>
+                            <span className='param-sub-info'>Dynamic Reversal</span>
+                        </div>
+                        <div className='param-toggle-buttons'>
+                            <button
+                                type='button'
+                                className={`param-toggle-btn ${config.interlockingPair === 'EVEN_ODD' ? 'is-active' : ''}`}
+                                onClick={() => onChangeConfig({ interlockingPair: 'EVEN_ODD' })}
+                            >
+                                Even ↔ Odd
+                            </button>
+                            <button
+                                type='button'
+                                className={`param-toggle-btn ${config.interlockingPair === 'OVER_UNDER' ? 'is-active' : ''}`}
+                                onClick={() => onChangeConfig({ interlockingPair: 'OVER_UNDER' })}
+                            >
+                                Under 6 ↔ Over 3
+                            </button>
+                        </div>
                     </div>
                 )}
             </div>
