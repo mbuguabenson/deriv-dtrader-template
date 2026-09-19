@@ -4,17 +4,22 @@ import { TMarketTickStats } from './types';
 export const SYNTHETIC_MARKETS = [
     { symbol: '1HZ100V', displayName: 'Volatility 100 (1s) Index' },
     { symbol: 'R_100', displayName: 'Volatility 100 Index' },
+    { symbol: '1HZ90V', displayName: 'Volatility 90 (1s) Index' },
     { symbol: '1HZ75V', displayName: 'Volatility 75 (1s) Index' },
     { symbol: 'R_75', displayName: 'Volatility 75 Index' },
     { symbol: '1HZ50V', displayName: 'Volatility 50 (1s) Index' },
     { symbol: 'R_50', displayName: 'Volatility 50 Index' },
+    { symbol: '1HZ30V', displayName: 'Volatility 30 (1s) Index' },
     { symbol: '1HZ25V', displayName: 'Volatility 25 (1s) Index' },
     { symbol: 'R_25', displayName: 'Volatility 25 Index' },
+    { symbol: '1HZ15V', displayName: 'Volatility 15 (1s) Index' },
     { symbol: '1HZ10V', displayName: 'Volatility 10 (1s) Index' },
     { symbol: 'R_10', displayName: 'Volatility 10 Index' },
-    { symbol: '1HZ150V', displayName: 'Volatility 150 (1s) Index' },
-    { symbol: '1HZ250V', displayName: 'Volatility 250 (1s) Index' },
-    { symbol: '1HZ300V', displayName: 'Volatility 300 (1s) Index' },
+    { symbol: 'JD10', displayName: 'Jump 10 Index' },
+    { symbol: 'JD25', displayName: 'Jump 25 Index' },
+    { symbol: 'JD50', displayName: 'Jump 50 Index' },
+    { symbol: 'JD75', displayName: 'Jump 75 Index' },
+    { symbol: 'JD100', displayName: 'Jump 100 Index' },
 ];
 
 export const getLastDigitFromPrice = (price: number | string, pipSize: number = 2): number => {
@@ -34,12 +39,15 @@ class MarketDataService {
     private listeners: TStatsListener[] = [];
     private activeSymbol: string = '1HZ100V';
     private prevFrequencies: Record<string, number[]> = {};
+    private symbolPipSizes: Record<string, number> = {};
+    private isInitialized: boolean = false;
 
     constructor() {
         // Initialize default empty stats for all synthetic markets
         SYNTHETIC_MARKETS.forEach(m => {
             this.statsMap[m.symbol] = this.createEmptyStats(m.symbol, m.displayName);
             this.tickBuffers[m.symbol] = { prices: [], digits: [] };
+            this.symbolPipSizes[m.symbol] = 2;
         });
     }
 
@@ -50,6 +58,11 @@ class MarketDataService {
     public setActiveSymbol(symbol: string) {
         if (this.statsMap[symbol]) {
             this.activeSymbol = symbol;
+            if (!this.subscribers[symbol]) {
+                this.loadInitialHistory(symbol).then(() => {
+                    this.subscribeToTickStream(symbol);
+                });
+            }
             this.notifyListeners();
         }
     }
@@ -82,9 +95,33 @@ class MarketDataService {
         });
     }
 
+    private async waitForWS(): Promise<boolean> {
+        for (let i = 0; i < 40; i++) {
+            if (
+                WS &&
+                (typeof WS.getTicksHistory === 'function' ||
+                    typeof WS.subscribeTicks === 'function' ||
+                    typeof WS.send === 'function')
+            ) {
+                return true;
+            }
+            // eslint-disable-next-line no-await-in-loop
+            await new Promise(r => setTimeout(r, 250));
+        }
+        return false;
+    }
+
     public async init() {
-        // Fetch 1000 ticks history for the active symbol first, and top 5 synthetics
-        const prioritySymbols = [this.activeSymbol, 'R_100', '1HZ75V', 'R_75', '1HZ50V', '1HZ25V', '1HZ10V'];
+        if (this.isInitialized) return;
+        const ready = await this.waitForWS();
+        if (!ready) {
+            setTimeout(() => this.init(), 2000);
+            return;
+        }
+        this.isInitialized = true;
+
+        // Fetch 1000 ticks history for the active symbol first, and top synthetics
+        const prioritySymbols = [this.activeSymbol, 'R_100', '1HZ75V', 'R_75', '1HZ50V', '1HZ25V', '1HZ10V', '1HZ15V', 'JD50'];
         await Promise.all(
             prioritySymbols.map(async sym => {
                 await this.loadInitialHistory(sym);
@@ -103,17 +140,31 @@ class MarketDataService {
 
     private async loadInitialHistory(symbol: string) {
         try {
-            if (!WS || typeof WS.getTicksHistory !== 'function') return;
-            const res = await WS.getTicksHistory({
-                ticks_history: symbol,
-                count: 1000,
-                end: 'latest',
-                style: 'ticks',
-            });
+            if (!WS) return;
+            let res: any = null;
+            if (typeof WS.getTicksHistory === 'function') {
+                res = await WS.getTicksHistory({
+                    ticks_history: symbol,
+                    count: 1000,
+                    end: 'latest',
+                    style: 'ticks',
+                });
+            } else if (typeof WS.send === 'function') {
+                res = await WS.send({
+                    ticks_history: symbol,
+                    count: 1000,
+                    end: 'latest',
+                    style: 'ticks',
+                });
+            }
 
             if (res && res.history && Array.isArray(res.history.prices)) {
-                const prices: number[] = res.history.prices;
-                const pipSize = res.pip_size || 2;
+                const prices: number[] = res.history.prices.map(Number);
+                const pipSize =
+                    res.pip_size !== undefined && res.pip_size !== null
+                        ? Number(res.pip_size)
+                        : this.symbolPipSizes[symbol] || 2;
+                this.symbolPipSizes[symbol] = pipSize;
                 const digits = prices.map(p => getLastDigitFromPrice(p, pipSize));
 
                 this.tickBuffers[symbol] = { prices, digits };
@@ -129,38 +180,62 @@ class MarketDataService {
     private subscribeToTickStream(symbol: string) {
         if (this.subscribers[symbol]) return;
         try {
-            if (!WS || typeof WS.subscribeTicksHistory !== 'function') return;
-            const sub = WS.subscribeTicksHistory(
-                {
-                    ticks_history: symbol,
-                    count: 1,
-                    end: 'latest',
-                    style: 'ticks',
-                    subscribe: 1,
-                },
-                (response: any) => {
-                    if (response.tick) {
-                        const price = response.tick.quote;
-                        const pipSize = response.tick.pip_size || 2;
-                        const digit = getLastDigitFromPrice(price, pipSize);
+            if (!WS) return;
+            const handleTick = (response: any) => {
+                if (response.tick) {
+                    const price = Number(response.tick.quote);
+                    const pipSize =
+                        response.tick.pip_size !== undefined && response.tick.pip_size !== null
+                            ? Number(response.tick.pip_size)
+                            : this.symbolPipSizes[symbol] || 2;
+                    this.symbolPipSizes[symbol] = pipSize;
+                    const digit = getLastDigitFromPrice(price, pipSize);
 
-                        const buffer = this.tickBuffers[symbol] || { prices: [], digits: [] };
-                        buffer.prices.push(price);
-                        buffer.digits.push(digit);
+                    const buffer = this.tickBuffers[symbol] || { prices: [], digits: [] };
+                    buffer.prices.push(price);
+                    buffer.digits.push(digit);
 
-                        if (buffer.prices.length > 1000) {
-                            buffer.prices.shift();
-                            buffer.digits.shift();
-                        }
-                        this.tickBuffers[symbol] = buffer;
-
-                        this.recalculateStats(symbol, price, pipSize);
-                        this.evaluateBestMarket();
-                        this.notifyListeners();
+                    if (buffer.prices.length > 1000) {
+                        buffer.prices.shift();
+                        buffer.digits.shift();
                     }
+                    this.tickBuffers[symbol] = buffer;
+
+                    this.recalculateStats(symbol, price, pipSize);
+                    this.evaluateBestMarket();
+                    this.notifyListeners();
+                } else if (response.history && Array.isArray(response.history.prices)) {
+                    const prices: number[] = response.history.prices.map(Number);
+                    const pipSize =
+                        response.pip_size !== undefined && response.pip_size !== null
+                            ? Number(response.pip_size)
+                            : this.symbolPipSizes[symbol] || 2;
+                    this.symbolPipSizes[symbol] = pipSize;
+                    const digits = prices.map(p => getLastDigitFromPrice(p, pipSize));
+
+                    this.tickBuffers[symbol] = { prices, digits };
+                    this.recalculateStats(symbol, prices[prices.length - 1] || 0, pipSize);
+                    this.evaluateBestMarket();
+                    this.notifyListeners();
                 }
-            );
-            this.subscribers[symbol] = sub;
+            };
+
+            if (typeof WS.subscribeTicks === 'function') {
+                const sub = WS.subscribeTicks(symbol, handleTick);
+                this.subscribers[symbol] = sub;
+            } else if (typeof WS.subscribeTicksHistory === 'function') {
+                const sub = WS.subscribeTicksHistory(
+                    {
+                        ticks_history: symbol,
+                        count: 1,
+                        end: 'latest',
+                        style: 'ticks',
+                        subscribe: 1,
+                    },
+                    handleTick
+                );
+                this.subscribers[symbol] = sub;
+            }
         } catch (_e) {
             // Subscription fallback
         }
@@ -301,6 +376,7 @@ class MarketDataService {
             symbol,
             displayName: prevStats?.displayName || symbol,
             price: currentPrice,
+            pipSize: _pipSize || 2,
             lastDigit,
             digits50,
             digits15,
@@ -366,6 +442,7 @@ class MarketDataService {
             symbol,
             displayName,
             price: 0,
+            pipSize: 2,
             lastDigit: 0,
             digits50: [],
             digits15: [],

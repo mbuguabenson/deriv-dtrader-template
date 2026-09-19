@@ -21,7 +21,7 @@ export const StrategyController: React.FC<TStrategyControllerProps> = ({
     config,
     onChangeConfig,
     isRunning,
-    _botStatus,
+    botStatus: _botStatus,
     onStart,
     onStop,
     onReset,

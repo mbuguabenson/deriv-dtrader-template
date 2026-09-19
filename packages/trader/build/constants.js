@@ -10,7 +10,7 @@ const path = require('path');
 const StylelintPlugin = require('stylelint-webpack-plugin');
 const TerserPlugin = require('terser-webpack-plugin');
 const { WebpackManifestPlugin } = require('webpack-manifest-plugin');
-const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
+const _ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin'); // eslint-disable-line no-unused-vars
 
 const {
     // copyConfig,
@@ -132,7 +132,7 @@ const plugins = (base, is_test_env) => [
     new IgnorePlugin({ resourceRegExp: /^\.\/locale$/, contextRegExp: /moment$/ }),
     new MiniCssExtractPlugin(cssConfig()),
     new CircularDependencyPlugin({ exclude: /node_modules/, failOnError: true }),
-    new ForkTsCheckerWebpackPlugin(),
+    // new ForkTsCheckerWebpackPlugin(),
     ...(IS_RELEASE
         ? []
         : [

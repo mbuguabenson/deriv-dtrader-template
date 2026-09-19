@@ -71,7 +71,7 @@ export const MarketScanner: React.FC<TMarketScannerProps> = ({
                                     <div className='market-price-col'>
                                         <span className='market-price-label'>Price</span>
                                         <span className='market-price-val'>
-                                            {s && s.price > 0 ? `$${s.price.toFixed(2)}` : 'Loading...'}
+                                            {s && s.price > 0 ? `$${s.price.toFixed(s.pipSize ?? 2)}` : 'Loading...'}
                                         </span>
                                     </div>
                                     <div className='market-last-digit-box'>

@@ -13,15 +13,29 @@ export const CompoundingPlanner: React.FC<TCompoundingPlannerProps> = ({
     onStartCompoundingAutoTrade,
     isAutoTradeRunning,
 }) => {
-    const [inputs, setInputs] = useState<TCompoundingInput>({
-        startingCapital: accountBalance > 0 ? Math.round(accountBalance) : 100,
-        targetAmount: 500,
-        periodCount: 20,
-        periodType: 'DAYS',
-        profitPercent: 5,
+    const [inputs, setInputs] = useState<TCompoundingInput>(() => {
+        const saved = CompoundingService.loadPlan();
+        if (saved?.input) {
+            return saved.input;
+        }
+        const start = accountBalance > 0 ? Math.round(accountBalance) : 100;
+        return {
+            startingCapital: start,
+            targetAmount: start * 5,
+            periodCount: 20,
+            periodType: 'DAYS',
+        };
     });
 
     const [rows, setRows] = useState<TCompoundingRow[]>([]);
+
+    const updatePlan = (newInputs: TCompoundingInput) => {
+        setInputs(newInputs);
+        const newRows = CompoundingService.generatePlan(newInputs);
+        const checkedRows = CompoundingService.updateMilestonesWithLiveBalance(newRows, accountBalance);
+        setRows(checkedRows);
+        CompoundingService.savePlan(newInputs, checkedRows);
+    };
 
     // Load persisted plan on mount or generate initial
     useEffect(() => {
@@ -31,8 +45,9 @@ export const CompoundingPlanner: React.FC<TCompoundingPlannerProps> = ({
             const updatedRows = CompoundingService.updateMilestonesWithLiveBalance(saved.rows, accountBalance);
             setRows(updatedRows);
         } else {
-            handleGeneratePlan();
+            updatePlan(inputs);
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // Update milestones when live balance changes
@@ -44,33 +59,32 @@ export const CompoundingPlanner: React.FC<TCompoundingPlannerProps> = ({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [accountBalance]);
 
+    const handleFieldChange = (field: keyof TCompoundingInput, value: number | string) => {
+        const next = { ...inputs, [field]: value };
+        updatePlan(next);
+    };
+
     const handleGeneratePlan = () => {
-        const newRows = CompoundingService.generatePlan(inputs);
-        const checkedRows = CompoundingService.updateMilestonesWithLiveBalance(newRows, accountBalance);
-        setRows(checkedRows);
-        CompoundingService.savePlan(inputs, checkedRows);
+        updatePlan(inputs);
     };
 
     const handleReset = () => {
+        const start = accountBalance > 0 ? Math.round(accountBalance) : 100;
         const defaultInputs: TCompoundingInput = {
-            startingCapital: accountBalance > 0 ? Math.round(accountBalance) : 100,
-            targetAmount: 500,
+            startingCapital: start,
+            targetAmount: start * 5,
             periodCount: 20,
             periodType: 'DAYS',
-            profitPercent: 5,
         };
-        setInputs(defaultInputs);
-        const newRows = CompoundingService.generatePlan(defaultInputs);
-        const checkedRows = CompoundingService.updateMilestonesWithLiveBalance(newRows, accountBalance);
-        setRows(checkedRows);
-        CompoundingService.savePlan(defaultInputs, checkedRows);
+        updatePlan(defaultInputs);
     };
 
     const handleExport = () => {
         CompoundingService.exportToCsv(rows, inputs);
     };
 
-    const finalBalance = rows.length > 0 ? rows[rows.length - 1].endingBalance : 0;
+    const calculatedRate = CompoundingService.calculateRate(inputs.startingCapital, inputs.targetAmount, inputs.periodCount);
+    const finalBalance = rows.length > 0 ? rows[rows.length - 1].endingBalance : inputs.targetAmount;
     const totalProfit = rows.length > 0 ? finalBalance - inputs.startingCapital : 0;
     const completedCount = rows.filter(r => r.isCompleted).length;
     const progressPercent = rows.length > 0 ? Math.min(100, Math.round((completedCount / rows.length) * 100)) : 0;
@@ -89,7 +103,7 @@ export const CompoundingPlanner: React.FC<TCompoundingPlannerProps> = ({
             <div className='compounding-header'>
                 <div className='compounding-title-block'>
                     <h3>📈 Compounding Growth Challenge Generator</h3>
-                    <p>Build your target milestone plan. Track live account balance and auto-tick each milestone!</p>
+                    <p>Auto-calculates needed profit rate and ending balance for each period. Track live account balance and auto-tick milestones!</p>
                 </div>
 
                 <div className='compounding-summary-badges'>
@@ -98,16 +112,20 @@ export const CompoundingPlanner: React.FC<TCompoundingPlannerProps> = ({
                         <strong className='badge-val'>${inputs.startingCapital.toFixed(2)}</strong>
                     </div>
                     <div className='summary-badge'>
-                        <span className='badge-sub'>Total Profit</span>
-                        <strong className='badge-val color-green'>+${totalProfit.toFixed(2)}</strong>
+                        <span className='badge-sub'>Target Growth Rate</span>
+                        <strong className='badge-val color-green'>+{calculatedRate}% / {inputs.periodType === 'DAYS' ? 'day' : 'hr'}</strong>
                     </div>
                     <div className='summary-badge'>
-                        <span className='badge-sub'>Final Balance</span>
+                        <span className='badge-sub'>Total Profit Needed</span>
+                        <strong className='badge-val color-green'>+${Math.max(0, totalProfit).toFixed(2)}</strong>
+                    </div>
+                    <div className='summary-badge'>
+                        <span className='badge-sub'>Needed Ending Balance</span>
                         <strong className='badge-val color-cyan'>${finalBalance.toFixed(2)}</strong>
                     </div>
                     <div className='summary-badge'>
                         <span className='badge-sub'>Challenge Progress</span>
-                        <strong className='badge-val color-orange'>{progressPercent}%</strong>
+                        <strong className='badge-val color-orange'>{progressPercent}% ({completedCount}/{rows.length})</strong>
                     </div>
                 </div>
             </div>
@@ -119,23 +137,25 @@ export const CompoundingPlanner: React.FC<TCompoundingPlannerProps> = ({
                         <label>Starting Capital ($)</label>
                         <input
                             type='number'
+                            min='1'
                             value={inputs.startingCapital}
-                            onChange={e => setInputs({ ...inputs, startingCapital: parseFloat(e.target.value) || 0 })}
+                            onChange={e => handleFieldChange('startingCapital', parseFloat(e.target.value) || 0)}
                         />
                     </div>
                     <div className='input-item'>
                         <label>Target Amount ($)</label>
                         <input
                             type='number'
+                            min='1'
                             value={inputs.targetAmount}
-                            onChange={e => setInputs({ ...inputs, targetAmount: parseFloat(e.target.value) || 0 })}
+                            onChange={e => handleFieldChange('targetAmount', parseFloat(e.target.value) || 0)}
                         />
                     </div>
                     <div className='input-item'>
                         <label>Period Type</label>
                         <select
                             value={inputs.periodType}
-                            onChange={e => setInputs({ ...inputs, periodType: e.target.value as 'DAYS' | 'HOURS' })}
+                            onChange={e => handleFieldChange('periodType', e.target.value as 'DAYS' | 'HOURS')}
                         >
                             <option value='DAYS'>Days</option>
                             <option value='HOURS'>Hours</option>
@@ -145,18 +165,21 @@ export const CompoundingPlanner: React.FC<TCompoundingPlannerProps> = ({
                         <label>Count ({inputs.periodType === 'DAYS' ? 'Days' : 'Hours'})</label>
                         <input
                             type='number'
+                            min='1'
+                            max='365'
                             value={inputs.periodCount}
-                            onChange={e => setInputs({ ...inputs, periodCount: Number(e.target.value) || 1 })}
+                            onChange={e => handleFieldChange('periodCount', Number(e.target.value) || 1)}
                         />
                     </div>
-                    <div className='input-item'>
-                        <label>Profit % per Period</label>
-                        <input
-                            type='number'
-                            step='0.5'
-                            value={inputs.profitPercent}
-                            onChange={e => setInputs({ ...inputs, profitPercent: parseFloat(e.target.value) || 1 })}
-                        />
+                    <div className='input-item auto-rate-item'>
+                        <label>Needed Profit Rate</label>
+                        <div
+                            className='auto-calculated-rate-pill'
+                            title='Auto-calculated using compound growth formula: (Target / Starting)^(1/N) - 1'
+                        >
+                            <span className='pill-rate-val'>+{calculatedRate}%</span>
+                            <span className='pill-rate-sub'>/ {inputs.periodType === 'DAYS' ? 'Day' : 'Hour'}</span>
+                        </div>
                     </div>
                 </div>
 
@@ -214,34 +237,51 @@ export const CompoundingPlanner: React.FC<TCompoundingPlannerProps> = ({
                             <th>Period</th>
                             <th>Starting Balance</th>
                             <th>Target Profit</th>
-                            <th>Ending Balance</th>
+                            <th>Needed Ending Balance</th>
                             <th>Milestone Status</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {rows.map(r => (
-                            <tr key={r.step} className={r.isCompleted ? 'is-row-completed' : ''}>
-                                <td>
-                                    <strong>{r.timeLabel}</strong>
-                                </td>
-                                <td>${r.startingBalance.toFixed(2)}</td>
-                                <td className='color-green'>+${r.targetProfit.toFixed(2)}</td>
-                                <td className='color-cyan'>${r.endingBalance.toFixed(2)}</td>
-                                <td>
-                                    <div className='milestone-check-cell'>
-                                        <input
-                                            type='checkbox'
-                                            checked={r.isCompleted}
-                                            readOnly
-                                            className='milestone-checkbox'
-                                        />
-                                        <span className={`milestone-badge ${r.isCompleted ? 'badge-achieved' : 'badge-pending'}`}>
-                                            {r.isCompleted ? '✓ Completed' : 'Pending'}
-                                        </span>
-                                    </div>
-                                </td>
-                            </tr>
-                        ))}
+                        {rows.map((r, i) => {
+                            const isCurrentStep = !r.isCompleted && (i === 0 || rows[i - 1]?.isCompleted);
+                            const neededDiff = Math.max(0, r.endingBalance - accountBalance);
+
+                            return (
+                                <tr key={r.step} className={r.isCompleted ? 'is-row-completed' : ''}>
+                                    <td>
+                                        <strong>{r.timeLabel}</strong>
+                                    </td>
+                                    <td>${r.startingBalance.toFixed(2)}</td>
+                                    <td className='color-green'>+${r.targetProfit.toFixed(2)}</td>
+                                    <td className='color-cyan'>${r.endingBalance.toFixed(2)}</td>
+                                    <td>
+                                        <div className='milestone-check-cell'>
+                                            <input
+                                                type='checkbox'
+                                                checked={r.isCompleted}
+                                                readOnly
+                                                className='milestone-checkbox'
+                                            />
+                                            <span
+                                                className={`milestone-badge ${
+                                                    r.isCompleted
+                                                        ? 'badge-achieved'
+                                                        : isCurrentStep
+                                                        ? 'badge-inprogress'
+                                                        : 'badge-pending'
+                                                }`}
+                                            >
+                                                {r.isCompleted
+                                                    ? '✓ Completed'
+                                                    : isCurrentStep
+                                                    ? `In Progress (Needed: +$${neededDiff.toFixed(2)})`
+                                                    : 'Pending'}
+                                            </span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>

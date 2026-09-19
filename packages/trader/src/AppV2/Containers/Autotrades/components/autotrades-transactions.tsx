@@ -34,7 +34,7 @@ export const AutotradesTransactions: React.FC<TAutotradesTransactionsProps> = ({
 
             {tradeLogs.length === 0 ? (
                 <div className='transactions-empty-state'>
-                    <span>No trades executed yet. Click "Start Autotrading" above to begin.</span>
+                    <span>No trades executed yet. Click &quot;Start Autotrading&quot; above to begin.</span>
                 </div>
             ) : (
                 <div className='transactions-table-wrap'>

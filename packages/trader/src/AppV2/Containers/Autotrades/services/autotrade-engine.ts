@@ -539,34 +539,63 @@ class AutoTradeEngine {
 
     private trackContractSettlement(contractId: number, tradeLog: TTradeLogItem, stake: number) {
         try {
-            if (!WS || typeof WS.subscribeProposalOpenContract !== 'function') {
-                setTimeout(() => this.finishSettlement(tradeLog, true, stake * 0.95), 2000);
+            if (!WS) {
+                tradeLog.status = 'LOST';
+                tradeLog.errorMessage = 'WebSocket disconnected from Deriv API';
+                this.isExecutingOrder = false;
+                this.botStatus = 'PAUSED';
+                this.notify();
                 return;
             }
 
-            const sub = WS.subscribeProposalOpenContract(contractId, (response: any) => {
-                if (response.proposal_open_contract) {
-                    const poc = response.proposal_open_contract;
-                    if (poc.is_sold) {
-                        try {
-                            if (sub && typeof sub.unsubscribe === 'function') {
-                                sub.unsubscribe();
+            const onSettlement = (poc: any) => {
+                if (!poc || !poc.is_sold) return;
+                const isWin = poc.status === 'won';
+                const profit = poc.profit !== undefined ? Number(poc.profit) : (isWin ? (poc.payout || 0) - stake : -stake);
+                const exitDigit = poc.exit_tick_display_value ? Number(poc.exit_tick_display_value.slice(-1)) : undefined;
+
+                tradeLog.exitDigit = exitDigit;
+                this.finishSettlement(tradeLog, isWin, profit);
+            };
+
+            if (typeof WS.subscribeProposalOpenContract === 'function') {
+                const sub = WS.subscribeProposalOpenContract(contractId, (response: any) => {
+                    if (response.proposal_open_contract) {
+                        const poc = response.proposal_open_contract;
+                        if (poc.is_sold) {
+                            try {
+                                if (sub && typeof sub.unsubscribe === 'function') {
+                                    sub.unsubscribe();
+                                }
+                            } catch (_e) {
+                                // unsubscribe error
                             }
-                        } catch (_e) {
-                            // unsubscribe error
+                            onSettlement(poc);
                         }
-
-                        const isWin = poc.status === 'won';
-                        const profit = poc.profit ?? (isWin ? (poc.payout || 0) - stake : -stake);
-                        const exitDigit = poc.exit_tick_display_value ? Number(poc.exit_tick_display_value.slice(-1)) : undefined;
-
-                        tradeLog.exitDigit = exitDigit;
-                        this.finishSettlement(tradeLog, isWin, profit);
                     }
-                }
-            });
-        } catch (_e) {
-            setTimeout(() => this.finishSettlement(tradeLog, true, stake * 0.95), 2000);
+                });
+            } else if (typeof WS.send === 'function') {
+                // Poll contract status directly from real Deriv API
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const res = await WS.send({ proposal_open_contract: 1, contract_id: contractId });
+                        if (res?.proposal_open_contract?.is_sold) {
+                            clearInterval(pollInterval);
+                            onSettlement(res.proposal_open_contract);
+                        }
+                    } catch (_err) {
+                        // Keep polling
+                    }
+                }, 1200);
+
+                setTimeout(() => clearInterval(pollInterval), 30000);
+            }
+        } catch (err: any) {
+            tradeLog.status = 'LOST';
+            tradeLog.errorMessage = err?.message || 'Error tracking contract with Deriv API';
+            this.isExecutingOrder = false;
+            this.botStatus = 'PAUSED';
+            this.notify();
         }
     }
 

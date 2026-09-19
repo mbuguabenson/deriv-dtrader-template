@@ -2,6 +2,7 @@ export type TMarketTickStats = {
     symbol: string;
     displayName: string;
     price: number;
+    pipSize: number;
     lastDigit: number;
     digits50: number[];
     digits15: number[];

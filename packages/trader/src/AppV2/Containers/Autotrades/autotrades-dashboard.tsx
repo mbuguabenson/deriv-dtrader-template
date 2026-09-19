@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+
 import { useHistory } from 'react-router-dom';
 import { observer } from 'mobx-react-lite';
 import { routes } from '@deriv/shared';
@@ -51,9 +52,9 @@ export const AutotradesDashboard = observer(() => {
         };
     }, []);
 
-    // Sync account balance to engine
+    // Sync real account balance to engine
     useEffect(() => {
-        const numBalance = parseFloat(String(balance)) || 100;
+        const numBalance = balance !== undefined && balance !== null ? Number(balance) : 0;
         autoTradeEngine.setAccountInfo(numBalance, currency || 'USD');
     }, [balance, currency]);
 
@@ -82,13 +83,25 @@ export const AutotradesDashboard = observer(() => {
 
                 <div className='header-right-col'>
                     <div className='account-balance-card'>
-                        <span className='balance-label'>ACCOUNT BALANCE</span>
+                        <div className='balance-account-type'>
+                            <span className={`account-badge ${client.is_virtual ? 'is-demo' : 'is-real'}`}>
+                                {client.is_virtual ? 'DEMO' : 'REAL'}
+                            </span>
+                            {client.loginid && <span className='account-loginid'>{client.loginid}</span>}
+                        </div>
+                        <span className='balance-label'>LIVE BALANCE</span>
                         <strong className='balance-num'>
-                            {currency || 'USD'} {balance !== undefined ? parseFloat(String(balance)).toFixed(2) : '100.00'}
+                            {currency || 'USD'} {balance !== undefined && balance !== null ? Number(balance).toFixed(2) : '0.00'}
                         </strong>
                     </div>
                 </div>
             </header>
+
+            {!is_logged_in && (
+                <div className='autotrades-login-banner'>
+                    <span>⚠️ <strong>Not Logged In:</strong> Please log in to your Deriv account to connect live market streams and trade with real account funds.</span>
+                </div>
+            )}
 
             {/* Main Content Layout */}
             <main className='autotrades-content-body'>

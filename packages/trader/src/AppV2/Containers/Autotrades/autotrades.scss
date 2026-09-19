@@ -101,6 +101,37 @@
         align-items: flex-end;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 
+        .balance-account-type {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 2px;
+
+            .account-badge {
+                font-size: 9px;
+                font-weight: 800;
+                padding: 1px 6px;
+                border-radius: 4px;
+                letter-spacing: 0.5px;
+
+                &.is-demo {
+                    background: rgba(255, 183, 3, 0.2);
+                    color: #ffb703;
+                }
+
+                &.is-real {
+                    background: rgba(75, 181, 67, 0.2);
+                    color: #4bb543;
+                }
+            }
+
+            .account-loginid {
+                font-size: 10px;
+                color: var(--text-sub);
+                font-weight: 600;
+            }
+        }
+
         .balance-label {
             font-size: 10px;
             color: var(--text-sub);
@@ -114,6 +145,19 @@
             color: #00a79e;
         }
     }
+}
+
+.autotrades-login-banner {
+    background: rgba(255, 183, 3, 0.12);
+    border: 1px solid rgba(255, 183, 3, 0.35);
+    color: #ffb703;
+    padding: 10px 16px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .autotrades-content-body {
@@ -529,26 +573,17 @@
                 color: var(--text-sub);
             }
 
-            .autotrades-chart-digit-glow {
-                width: 36px;
-                height: 36px;
+            .autotrades-chart-digit-glow-compact {
+                width: 26px;
+                height: 26px;
                 border-radius: 50%;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                font-size: 20px;
+                font-size: 13px;
                 font-weight: 900;
-                color: #fff;
-
-                &.is-under {
-                    background: #00a79e;
-                    box-shadow: 0 0 16px rgba(0, 167, 158, 0.7);
-                }
-
-                &.is-over {
-                    background: #ff444f;
-                    box-shadow: 0 0 16px rgba(255, 68, 79, 0.7);
-                }
+                border: 1.5px solid;
+                box-shadow: 0 0 8px rgba(0, 0, 0, 0.15);
             }
         }
     }
@@ -561,6 +596,80 @@
             width: 100%;
             height: auto;
             max-height: 200px;
+        }
+    }
+
+    .autotrades-50-digits-section {
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid var(--border-subtle);
+
+        .digits-50-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 11px;
+            color: var(--text-sub);
+            margin-bottom: 8px;
+            font-weight: 600;
+
+            .digits-50-title {
+                font-weight: 700;
+                color: inherit;
+            }
+        }
+
+        .digits-50-cards-row {
+            display: flex;
+            gap: 4px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+            scrollbar-width: thin;
+
+            &::-webkit-scrollbar {
+                height: 4px;
+            }
+            &::-webkit-scrollbar-thumb {
+                background: var(--card-border);
+                border-radius: 4px;
+            }
+
+            .digit-mini-card {
+                flex: 0 0 auto;
+                min-width: 22px;
+                height: 28px;
+                border-radius: 6px;
+                border: 1px solid transparent;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                position: relative;
+                font-size: 12px;
+                font-weight: 800;
+                transition: transform 0.15s ease;
+
+                &:hover {
+                    transform: scale(1.15);
+                    z-index: 2;
+                }
+
+                &.is-latest {
+                    box-shadow: 0 0 10px rgba(255, 183, 3, 0.4);
+                    border-width: 2px !important;
+                    font-size: 13px;
+                    font-weight: 900;
+                }
+
+                .mini-card-now-dot {
+                    width: 4px;
+                    height: 4px;
+                    border-radius: 50%;
+                    background: #ffb703;
+                    position: absolute;
+                    bottom: 2px;
+                }
+            }
         }
     }
 
@@ -1253,6 +1362,32 @@
                     font-weight: 600;
                 }
             }
+
+            .auto-rate-item {
+                .auto-calculated-rate-pill {
+                    background: rgba(0, 167, 158, 0.12);
+                    border: 1px solid rgba(0, 167, 158, 0.35);
+                    border-radius: 6px;
+                    padding: 6px 10px;
+                    display: flex;
+                    align-items: baseline;
+                    gap: 6px;
+                    height: 31px;
+                    box-sizing: border-box;
+
+                    .pill-rate-val {
+                        font-size: 13px;
+                        font-weight: 800;
+                        color: #00a79e;
+                    }
+
+                    .pill-rate-sub {
+                        font-size: 10px;
+                        font-weight: 600;
+                        color: var(--text-sub);
+                    }
+                }
+            }
         }
 
         .compounding-btn-actions {
@@ -1368,6 +1503,10 @@
                     &.badge-achieved {
                         background: rgba(75, 181, 67, 0.2);
                         color: #4bb543;
+                    }
+                    &.badge-inprogress {
+                        background: rgba(255, 183, 3, 0.2);
+                        color: #ffb703;
                     }
                     &.badge-pending {
                         background: rgba(139, 148, 158, 0.2);

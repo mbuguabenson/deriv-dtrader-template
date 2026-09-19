@@ -6,7 +6,7 @@ type TDigitStatsCardsProps = {
     isDarkMode?: boolean;
 };
 
-export const DigitStatsCards: React.FC<TDigitStatsCardsProps> = ({ stats, _isDarkMode = true }) => {
+export const DigitStatsCards: React.FC<TDigitStatsCardsProps> = ({ stats }) => {
     if (!stats) return null;
 
     const {
