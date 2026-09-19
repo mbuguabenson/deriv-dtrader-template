@@ -217,38 +217,77 @@ export const StrategyController: React.FC<TStrategyControllerProps> = ({
                     />
                 </div>
 
-                {/* Strategy-Specific Inputs */}
-                {activeStrategy === 'ELITE_PRO' && (
-                    <div className='param-group'>
+                {/* Over/Under Prediction Pair: available for ELITE_PRO and INTERLOCKING (when OVER_UNDER selected) */}
+                {(activeStrategy === 'ELITE_PRO' ||
+                    (activeStrategy === 'INTERLOCKING' && config.interlockingPair === 'OVER_UNDER')) && (
+                    <div className='param-group param-group-wide'>
                         <div className='param-header-label'>
-                            <span>Predictions</span>
-                            <span className='param-sub-info'>Under 6 / Over 3</span>
+                            <span>Prediction Pair</span>
+                            <span className='param-sub-info'>
+                                {config.eliteProPreset === 'AUTO'
+                                    ? '🤖 AI Adaptive'
+                                    : config.eliteProPreset === 'OVER1_UNDER8'
+                                    ? 'Over 1 / Under 8 (Ultra Safe)'
+                                    : config.eliteProPreset === 'OVER2_UNDER7'
+                                    ? 'Over 2 / Under 7 (Safe)'
+                                    : `Over ${config.eliteProPredictionOver || 3} / Under ${config.eliteProPredictionUnder || 6}`}
+                            </span>
                         </div>
-                        <div className='param-dual-inputs'>
-                            <div>
-                                <label className='param-small-label'>Under:</label>
-                                <select
-                                    className='param-select'
-                                    value={config.eliteProPredictionUnder}
-                                    onChange={e => onChangeConfig({ eliteProPredictionUnder: Number(e.target.value) })}
-                                >
-                                    <option value='6'>Under 6 (Rec)</option>
-                                    <option value='7'>Under 7</option>
-                                    <option value='8'>Under 8</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label className='param-small-label'>Over:</label>
-                                <select
-                                    className='param-select'
-                                    value={config.eliteProPredictionOver}
-                                    onChange={e => onChangeConfig({ eliteProPredictionOver: Number(e.target.value) })}
-                                >
-                                    <option value='3'>Over 3 (Rec)</option>
-                                    <option value='2'>Over 2</option>
-                                    <option value='1'>Over 1</option>
-                                </select>
-                            </div>
+                        <div className='param-toggle-buttons' style={{ flexWrap: 'wrap' }}>
+                            <button
+                                type='button'
+                                className={`param-toggle-btn ${
+                                    !config.eliteProPreset || config.eliteProPreset === 'OVER3_UNDER6'
+                                        ? 'is-active'
+                                        : ''
+                                }`}
+                                onClick={() =>
+                                    onChangeConfig({
+                                        eliteProPreset: 'OVER3_UNDER6',
+                                        eliteProPredictionOver: 3,
+                                        eliteProPredictionUnder: 6,
+                                    })
+                                }
+                            >
+                                Over 3 / Under 6
+                            </button>
+                            <button
+                                type='button'
+                                className={`param-toggle-btn ${
+                                    config.eliteProPreset === 'OVER2_UNDER7' ? 'is-active' : ''
+                                }`}
+                                onClick={() =>
+                                    onChangeConfig({
+                                        eliteProPreset: 'OVER2_UNDER7',
+                                        eliteProPredictionOver: 2,
+                                        eliteProPredictionUnder: 7,
+                                    })
+                                }
+                            >
+                                Over 2 / Under 7
+                            </button>
+                            <button
+                                type='button'
+                                className={`param-toggle-btn ${
+                                    config.eliteProPreset === 'OVER1_UNDER8' ? 'is-active' : ''
+                                }`}
+                                onClick={() =>
+                                    onChangeConfig({
+                                        eliteProPreset: 'OVER1_UNDER8',
+                                        eliteProPredictionOver: 1,
+                                        eliteProPredictionUnder: 8,
+                                    })
+                                }
+                            >
+                                Over 1 / Under 8
+                            </button>
+                            <button
+                                type='button'
+                                className={`param-toggle-btn ${config.eliteProPreset === 'AUTO' ? 'is-active' : ''}`}
+                                onClick={() => onChangeConfig({ eliteProPreset: 'AUTO' })}
+                            >
+                                🤖 Auto Choose
+                            </button>
                         </div>
                     </div>
                 )}

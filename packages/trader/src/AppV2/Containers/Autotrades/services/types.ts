@@ -87,6 +87,7 @@ export type TStrategyConfig = {
     soundEnabled: boolean;
     
     // Strategy Specific
+    eliteProPreset?: 'AUTO' | 'OVER3_UNDER6' | 'OVER2_UNDER7' | 'OVER1_UNDER8' | 'CUSTOM';
     eliteProPredictionUnder: number; // 6, 7, 8 (default 6)
     eliteProPredictionOver: number; // 1, 2, 3 (default 3)
     differsCandidateDigit: number; // 2 to 7

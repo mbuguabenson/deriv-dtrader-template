@@ -61,6 +61,7 @@ class AutoTradeEngine {
         martingaleMultiplier: 2.6, // 2.6x as requested
         autoSwitchBestMarket: true,
         soundEnabled: true,
+        eliteProPreset: 'OVER3_UNDER6',
         eliteProPredictionUnder: 6,
         eliteProPredictionOver: 3,
         differsCandidateDigit: 4,
@@ -336,10 +337,55 @@ class AutoTradeEngine {
     }
 
     // -------------------------------------------------------------
+    // BARRIER RESOLVER (AUTO-CHOOSE, OVER 3/UNDER 6, OVER 2/UNDER 7, OVER 1/UNDER 8)
+    // -------------------------------------------------------------
+    public getEffectiveBarriers(stats?: TMarketTickStats): { under: number; over: number; label: string } {
+        const preset = this.config.eliteProPreset || 'OVER3_UNDER6';
+
+        if (preset === 'AUTO') {
+            if (!stats) {
+                return { under: 6, over: 3, label: 'Auto (Over 3 / Under 6)' };
+            }
+            const underPct = stats.under0_4_pct || 50;
+            const overPct = stats.over5_9_pct || 50;
+            const dominantPct = Math.max(underPct, overPct);
+
+            // Dynamic selection based on directional strength:
+            // High conviction (>=62%) -> Over 3 / Under 6 (maximum payout)
+            // Strong conviction (57-61%) -> Over 2 / Under 7 (solid balance)
+            // Standard/Cautious (<=56%) -> Over 1 / Under 8 (ultra safe 80%+ win-rate)
+            if (dominantPct >= 62) {
+                return { under: 6, over: 3, label: 'Auto: High Power (Over 3 / Under 6)' };
+            } else if (dominantPct >= 57) {
+                return { under: 7, over: 2, label: 'Auto: Balanced (Over 2 / Under 7)' };
+            } else {
+                return { under: 8, over: 1, label: 'Auto: Ultra Safe (Over 1 / Under 8)' };
+            }
+        }
+
+        if (preset === 'OVER1_UNDER8') {
+            return { under: 8, over: 1, label: 'Over 1 / Under 8 (Ultra Safe)' };
+        }
+        if (preset === 'OVER2_UNDER7') {
+            return { under: 7, over: 2, label: 'Over 2 / Under 7 (Safe)' };
+        }
+        if (preset === 'OVER3_UNDER6') {
+            return { under: 6, over: 3, label: 'Over 3 / Under 6 (Balanced)' };
+        }
+
+        return {
+            under: this.config.eliteProPredictionUnder || 6,
+            over: this.config.eliteProPredictionOver || 3,
+            label: `Custom (Over ${this.config.eliteProPredictionOver || 3} / Under ${this.config.eliteProPredictionUnder || 6})`,
+        };
+    }
+
+    // -------------------------------------------------------------
     // STRATEGY 1: ELITE PRO (OVER 3 / UNDER 6)
     // -------------------------------------------------------------
     private evaluateElitePro(stats: TMarketTickStats) {
         const lastDigit = stats.lastDigit;
+        const barriers = this.getEffectiveBarriers(stats);
 
         // Condition 1: Under 0-4 vs Over 5-9 threshold > 55% AND increasing
         const isUnderDominant = stats.under0_4_pct >= 54.0 && stats.under0_4_increasing;
@@ -353,9 +399,9 @@ class AutoTradeEngine {
         const overCondition2 = stats.over4_9_count >= stats.under0_5_count && last10OverCount >= 7;
 
         // Condition 3: Safety filter on 1000 ticks:
-        // Under 6: digits 7,8,9 should be < 10% and not increasing
+        // Under: high digits should be < 10% and not increasing
         const digits789Count = stats.freq1000.filter(f => [7, 8, 9].includes(f.digit) && f.percentage < 10.5).length >= 2;
-        // Over 3: digits 0,1,2 should be < 10% and not increasing
+        // Over: low digits should be < 10% and not increasing
         const digits012Count = stats.freq1000.filter(f => [0, 1, 2].includes(f.digit) && f.percentage < 10.5).length >= 2;
 
         if (isUnderDominant && underCondition2 && digits789Count) {
@@ -368,7 +414,7 @@ class AutoTradeEngine {
                     symbol: stats.symbol,
                     strategy: 'ELITE_PRO',
                     contractType: 'DIGITUNDER',
-                    barrier: this.config.eliteProPredictionUnder || 6,
+                    barrier: barriers.under,
                     entryDigit: lastDigit,
                 });
             }
@@ -382,7 +428,7 @@ class AutoTradeEngine {
                     symbol: stats.symbol,
                     strategy: 'ELITE_PRO',
                     contractType: 'DIGITOVER',
-                    barrier: this.config.eliteProPredictionOver || 3,
+                    barrier: barriers.over,
                     entryDigit: lastDigit,
                 });
             }
@@ -572,26 +618,27 @@ class AutoTradeEngine {
             }
         } else {
             // OVER_UNDER Interlocking Pair
+            const barriers = this.getEffectiveBarriers(stats);
             let targetContract = 'DIGITUNDER';
-            let targetBarrier: number = this.config.eliteProPredictionUnder || 6;
+            let targetBarrier: number = barriers.under;
 
             if (!this.interlockingLastWon && this.config.interlockingFlipOnLoss && this.interlockingLastContract) {
-                // Flip interlock between Under 6 and Over 3
+                // Flip interlock between Under and Over
                 if (this.interlockingLastContract === 'DIGITUNDER') {
                     targetContract = 'DIGITOVER';
-                    targetBarrier = this.config.eliteProPredictionOver || 3;
+                    targetBarrier = barriers.over;
                 } else {
                     targetContract = 'DIGITUNDER';
-                    targetBarrier = this.config.eliteProPredictionUnder || 6;
+                    targetBarrier = barriers.under;
                 }
             } else {
                 // Dominant side selection
                 if (stats.over5_9_pct > stats.under0_4_pct) {
                     targetContract = 'DIGITOVER';
-                    targetBarrier = this.config.eliteProPredictionOver || 3;
+                    targetBarrier = barriers.over;
                 } else {
                     targetContract = 'DIGITUNDER';
-                    targetBarrier = this.config.eliteProPredictionUnder || 6;
+                    targetBarrier = barriers.under;
                 }
             }
 
