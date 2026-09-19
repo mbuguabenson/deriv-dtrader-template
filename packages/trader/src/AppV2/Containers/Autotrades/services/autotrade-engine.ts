@@ -485,10 +485,10 @@ class AutoTradeEngine {
 
         try {
             if (!WS || typeof WS.send !== 'function') {
-                throw new Error('WebSocket connection not ready');
+                throw new Error('WebSocket not connected to Deriv API');
             }
 
-            // 1. Request price proposal from Deriv
+            // 1. Request price proposal from Deriv API
             const proposalReq: any = {
                 proposal: 1,
                 amount: currentStake,
@@ -505,24 +505,37 @@ class AutoTradeEngine {
             }
 
             const proposalRes = await WS.send(proposalReq);
-            if (!proposalRes || proposalRes.error || !proposalRes.proposal) {
-                throw new Error(proposalRes?.error?.message || 'Proposal failed');
+
+            if (!proposalRes) {
+                throw new Error('No response from Deriv API proposal request');
+            }
+            if (proposalRes.error) {
+                throw new Error(`Proposal error [${proposalRes.error.code}]: ${proposalRes.error.message}`);
+            }
+            if (!proposalRes.proposal || !proposalRes.proposal.id) {
+                throw new Error('Invalid proposal response - missing proposal ID');
             }
 
-            const proposalId = proposalRes.proposal.id;
-            const payout = proposalRes.proposal.payout || 0;
+            const proposalId: string = proposalRes.proposal.id;
+            const payout: number = proposalRes.proposal.payout || 0;
 
-            // 2. Buy the contract
+            // 2. Buy the contract using correct Deriv API parameter format
             const buyRes = await WS.buy({
-                buy: proposalId,
+                proposal_id: proposalId, // ← correct field name per Deriv API spec
                 price: currentStake,
             });
 
-            if (!buyRes || buyRes.error || !buyRes.buy) {
-                throw new Error(buyRes?.error?.message || 'Purchase failed');
+            if (!buyRes) {
+                throw new Error('No response from Deriv API buy request');
+            }
+            if (buyRes.error) {
+                throw new Error(`Buy error [${buyRes.error.code}]: ${buyRes.error.message}`);
+            }
+            if (!buyRes.buy || !buyRes.buy.contract_id) {
+                throw new Error('Buy response missing contract_id');
             }
 
-            const contractId = buyRes.buy.contract_id;
+            const contractId: number = buyRes.buy.contract_id;
             tradeLog.contractId = contractId;
             tradeLog.payout = payout;
 
@@ -531,11 +544,14 @@ class AutoTradeEngine {
         } catch (error: any) {
             tradeLog.status = 'LOST';
             tradeLog.errorMessage = error?.message || 'Execution error';
+            // eslint-disable-next-line no-console
+            console.error('[AutoTradeEngine] Trade execution failed:', error?.message);
             this.isExecutingOrder = false;
             this.botStatus = 'PAUSED';
             this.notify();
         }
     }
+
 
     private trackContractSettlement(contractId: number, tradeLog: TTradeLogItem, stake: number) {
         try {
