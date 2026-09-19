@@ -7,7 +7,6 @@ import { Button, Flyout, Text } from '@deriv/components';
 import { isEmbeddedMode } from '@deriv/core/src/Services/oauth';
 import {
     LabelPairedLifeRingSmRegularIcon,
-    LegacyHomeNewIcon,
     StandaloneCircleUserFillIcon,
     StandaloneCircleUserRegularIcon,
     StandaloneClockThreeFillIcon,
@@ -23,7 +22,6 @@ import {
     getBrandLogo,
     getBrandLogoDark,
     getBrandName,
-    getHomeUrl,
     getHelpCentreUrl,
     isFeatureEnabled,
     routes,
@@ -96,19 +94,6 @@ const Sidebar = observer(() => {
         window.open(getHelpCentreUrl(), '_blank', 'noopener,noreferrer');
     };
 
-    const handleHomeClick = () => {
-        closeSidebarFlyout();
-        const homeUrl = getHomeUrl();
-        if (!homeUrl) return;
-        sendBridgeEvent('trading:home', () => {
-            if (isEmbeddedMode()) {
-                window.open(homeUrl, '_blank', 'noopener,noreferrer');
-            } else {
-                window.location.href = homeUrl;
-            }
-        });
-    };
-
     const closeFlyout = () => {
         closeSidebarFlyout();
     };
@@ -117,20 +102,7 @@ const Sidebar = observer(() => {
     const isPositionsActive = active_sidebar_flyout === 'positions';
     const isReportsActive = isActiveRoute(routes.reports);
 
-    const homeUrl = getHomeUrl();
     const navigationItems: TSidebarItem[] = [
-        ...(homeUrl && !isEmbeddedMode()
-            ? [
-                  {
-                      id: 'home',
-                      icon: <LegacyHomeNewIcon iconSize='xs' fill='var(--color-text-primary)' />,
-                      label: localize('Home'),
-                      onClick: handleHomeClick,
-                      isActive: false,
-                      dataTestId: 'dt_sidebar_home',
-                  },
-              ]
-            : []),
         {
             id: 'positions',
             icon: isPositionsActive ? (

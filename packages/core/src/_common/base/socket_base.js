@@ -18,10 +18,16 @@ const BinarySocketBase = (() => {
     let reconnect_handlers = []; // Array to store multiple reconnection handlers
     let reconnect_attempt_count = 0; // Track number of reconnect attempts
 
+    let fallback_to_v3 = false;
+
     // v4: WS URL is set by client-store after fetching an OTP from the REST API.
     // null means unauthenticated — fall back to public endpoint built from brand.config.json.
     // Evaluated lazily (not at module load time) so window.location is available.
     const getPublicWSUrl = () => {
+        if (fallback_to_v3) {
+            const appId = 16929;
+            return `wss://ws.derivws.com/websockets/v3?app_id=${appId}&l=en&brand=deriv`;
+        }
         const base = getApiV4BaseUrl(); // e.g. "https://api.derivws.com"
         return `${base.replace(/^https?:\/\//, 'wss://')}/trading/v1/options/ws/public`;
     };
@@ -113,12 +119,33 @@ const BinarySocketBase = (() => {
                 // Increment reconnect attempt counter
                 reconnect_attempt_count++;
 
-                // Throw error after reconnect attempts (unless embedded)
+                // If public options WS fails after 2 attempts, fall back to Deriv v3 WS endpoint
+                if (reconnect_attempt_count === 2 && !configured_ws_url && !fallback_to_v3) {
+                    fallback_to_v3 = true;
+                    // eslint-disable-next-line no-console
+                    console.warn(
+                        '[BinarySocketBase] Public options WS connection failed; falling back to Deriv v3 endpoint.'
+                    );
+                    setTimeout(() => {
+                        closeAndOpenNewConnection();
+                    }, 300);
+                    return;
+                }
+
+                // Throw error after reconnect attempts (unless embedded or localhost)
+                const is_local =
+                    typeof window !== 'undefined' &&
+                    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
                 const is_embedded =
                     typeof window !== 'undefined' &&
                     (window.top !== window || sessionStorage.getItem('is_embedded') === 'true');
 
-                if (reconnect_attempt_count >= 5 && !is_embedded && typeof config.onConnectionError === 'function') {
+                if (
+                    reconnect_attempt_count >= 5 &&
+                    !is_embedded &&
+                    !is_local &&
+                    typeof config.onConnectionError === 'function'
+                ) {
                     config.onConnectionError(error_event);
                     reconnect_attempt_count = 0; // Reset counter after throwing error
                 }

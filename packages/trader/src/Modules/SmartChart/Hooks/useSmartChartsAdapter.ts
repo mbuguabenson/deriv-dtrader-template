@@ -264,6 +264,8 @@ export const useSmartChartsAdapter = (config: UseSmartChartsAdapterConfig = {}):
                 if ('ohlc' in args[0] && granularityRef.current !== 0 && setTickDataRef.current) {
                     const { close, pip_size } = args[0].ohlc as { close: string; pip_size: number };
                     if (close && pip_size) setTickDataRef.current({ pip_size, quote: Number(close) });
+                } else if ('tick' in args[0] && setTickDataRef.current) {
+                    setTickDataRef.current(args[0].tick);
                 }
 
                 // Handle accumulator barriers data

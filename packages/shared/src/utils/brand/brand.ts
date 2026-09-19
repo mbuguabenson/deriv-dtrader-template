@@ -141,6 +141,14 @@ export const getRedirectHostname = (): string => {
     return '';
 };
 
+export const isLocalhost = (): boolean => {
+    if (typeof window === 'undefined') return false;
+    const hostname = window.location.hostname;
+    return (
+        hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname.endsWith('.localhost')
+    );
+};
+
 /**
  * Gets the v4 REST API base URL (e.g. "https://api.derivws.com")
  */
@@ -148,7 +156,7 @@ export const getApiV4BaseUrl = (): string => {
     const cfg = config_data as Record<string, unknown> & typeof config_data;
     const derivws = cfg.derivws as { staging: string; production: string } | undefined;
     if (!derivws) return 'https://api.derivws.com';
-    return isProduction() ? derivws.production : derivws.staging;
+    return isProduction() || isLocalhost() ? derivws.production : derivws.staging || derivws.production;
 };
 
 /**

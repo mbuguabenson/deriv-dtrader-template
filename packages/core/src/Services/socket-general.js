@@ -21,10 +21,14 @@ const BinarySocketGeneral = (() => {
     };
 
     const onConnectionError = () => {
-        if (isEmbeddedMode() || (typeof window !== 'undefined' && window.top !== window)) {
+        const is_local =
+            typeof window !== 'undefined' &&
+            (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+        if (isEmbeddedMode() || (typeof window !== 'undefined' && window.top !== window) || is_local) {
             // eslint-disable-next-line no-console
             console.warn(
-                '[BinarySocketGeneral] Connection error occurred in embedded mode; suppressing fatal error dialog.'
+                '[BinarySocketGeneral] Connection error occurred in embedded/local mode; suppressing fatal error dialog.'
             );
             return;
         }

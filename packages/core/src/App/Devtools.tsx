@@ -121,8 +121,7 @@ const Devtools = observer(() => {
 });
 
 const ProductionSafeDevtools = observer(() => {
-    if (process.env.NODE_ENV !== 'development' || isProduction()) return null;
-    return <Devtools />;
+    return null;
 });
 
 export default ProductionSafeDevtools;

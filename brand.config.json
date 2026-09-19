@@ -35,7 +35,7 @@
         "oauth_client_id": "34qV9FtmeYPRVWVJXIxr2"
     },
     "derivws": {
-        "staging": "https://staging-api.derivws.com",
+        "staging": "https://api.derivws.com",
         "production": "https://api.derivws.com"
     },
     "api_core": {

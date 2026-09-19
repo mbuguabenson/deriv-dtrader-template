@@ -34,13 +34,6 @@ const BottomNav = observer(({ className }: BottomNavProps) => {
     const bottomNavItems = React.useMemo(
         () => [
             {
-                icon: <StandaloneHouseBlankRegularIcon iconSize='sm' fill='var(--color-text-primary)' />,
-                activeIcon: <StandaloneHouseBlankFillIcon iconSize='sm' />,
-                label: <Localize i18n_default_text='Home' />,
-                path: null,
-                action: 'home' as const,
-            },
-            {
                 icon: <StandaloneChartAreaRegularIcon iconSize='sm' fill='var(--color-text-primary)' />,
                 activeIcon: <StandaloneChartAreaFillIcon iconSize='sm' />,
                 label: <Localize i18n_default_text='Trade' />,
@@ -114,23 +107,13 @@ const BottomNav = observer(({ className }: BottomNavProps) => {
             return -1; // No icon highlighted for contract details page
         }
         const idx = bottomNavItems.findIndex(item => item.path === location.pathname);
-        return idx > -1 ? idx : 1; // Default to Trade
+        return idx > -1 ? idx : 0; // Default to Trade
     }, [bottomNavItems, location.pathname]);
 
     const handleSelect = (index: number) => {
         const item = bottomNavItems[index];
 
-        if (item.action === 'home') {
-            sendBridgeEvent('trading:home', () => {
-                const brandUrl = getBrandUrl();
-                const lang_param = current_language ? `&lang=${encodeURIComponent(current_language)}` : '';
-                const curr = encodeURIComponent(currency || '');
-                window.location.href = `${brandUrl}/home?source=options&acc=options&curr=${curr}${lang_param}`;
-            });
-            return;
-        }
-
-        if (item.path) {
+        if (item?.path) {
             history.push(item.path);
         }
     };

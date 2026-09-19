@@ -111,11 +111,23 @@ const LastDigitPrediction = ({
 
     // latest last digit refers to digit and spot values from latest price
     // latest contract digit refers to digit and spot values from last digit contract in contracts array
-    const latest_tick_pip_size = tick ? +tick.pip_size : null;
+    const latest_tick_pip_size =
+        tick?.pip_size !== undefined && tick?.pip_size !== null
+            ? +tick.pip_size
+            : (String(tick?.quote || '').split('.')[1]?.length ?? 2);
     const latest_tick_quote_price =
-        tick?.quote && latest_tick_pip_size ? tick.quote.toFixed(latest_tick_pip_size) : null;
+        tick?.quote !== undefined && tick?.quote !== null
+            ? typeof tick.quote === 'number'
+                ? tick.quote.toFixed(latest_tick_pip_size)
+                : String(tick.quote)
+            : null;
     const latest_tick_digit = latest_tick_quote_price ? +(latest_tick_quote_price.split('').pop() || '') : null;
-    const position = tick ? getOffset()[latest_tick_digit ?? -1] : getOffset()[last_contract_digit.digit];
+    const position =
+        latest_tick_digit !== null && latest_tick_digit >= 0 && getOffset()[latest_tick_digit]
+            ? getOffset()[latest_tick_digit]
+            : last_contract_digit?.digit !== undefined
+              ? getOffset()[last_contract_digit.digit]
+              : undefined;
     const latest_digit = !(is_won || is_lost)
         ? { digit: latest_tick_digit, spot: latest_tick_quote_price }
         : last_contract_digit;
