@@ -6,9 +6,25 @@
     margin-left: 0.25rem;
     margin-bottom: 0.5rem;
 
-    &__animation {
+    &__flame {
         width: 1.2em;
         height: 1.2em;
-        display: inline-block;
+        animation: flame-flicker 0.8s ease-in-out infinite alternate;
+        transform-origin: bottom center;
+    }
+}
+
+@keyframes flame-flicker {
+    0% {
+        transform: scaleY(1) scaleX(1);
+        opacity: 1;
+    }
+    50% {
+        transform: scaleY(1.05) scaleX(0.97);
+        opacity: 0.95;
+    }
+    100% {
+        transform: scaleY(0.95) scaleX(1.03);
+        opacity: 0.9;
     }
 }
