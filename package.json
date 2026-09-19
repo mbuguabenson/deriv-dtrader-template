@@ -5,8 +5,9 @@
         "packages/*"
     ],
     "engines": {
-        "node": "20.x"
+        "node": "24.x"
     },
+
     "overrides": {
         "eslint": "^8.57.1",
         "react-dom": "^18.2.0",
