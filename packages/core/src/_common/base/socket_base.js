@@ -105,7 +105,7 @@ const BinarySocketBase = (() => {
         const mock_server_config = getMockServerConfig();
         const session_id = mock_server_config?.session_id || '';
 
-        if (!is_switching_socket) config.wsEvent('init');
+        if (!is_switching_socket && typeof config.wsEvent === 'function') config.wsEvent('init');
 
         if (isClose()) {
             is_disconnect_called = false;
@@ -159,7 +159,7 @@ const BinarySocketBase = (() => {
         }
 
         deriv_api.onOpen().subscribe(() => {
-            config.wsEvent('open');
+            if (typeof config.wsEvent === 'function') config.wsEvent('open');
 
             // Reset reconnect attempt counter on successful connection
             reconnect_attempt_count = 0;
@@ -203,7 +203,7 @@ const BinarySocketBase = (() => {
             const msg_type = response.msg_type;
             State.set(['response', msg_type], cloneObject(response));
 
-            config.wsEvent('message');
+            if (typeof config.wsEvent === 'function') config.wsEvent('message');
 
             if (typeof config.onMessage === 'function') {
                 config.onMessage(response);
@@ -212,7 +212,7 @@ const BinarySocketBase = (() => {
 
         deriv_api.onClose().subscribe(() => {
             if (!is_switching_socket) {
-                config.wsEvent('close');
+                if (typeof config.wsEvent === 'function') config.wsEvent('close');
             } else {
                 is_switching_socket = false;
             }
@@ -696,7 +696,19 @@ const BinarySocketBase = (() => {
 function delegateToObject(base_obj, extending_obj_getter) {
     return new Proxy(base_obj, {
         get(target, field) {
-            if (target[field]) return target[field];
+            if (target[field] !== undefined) return target[field];
+
+            // Ignore internal bundler, JS, and React introspection probes
+            if (
+                typeof field === 'symbol' ||
+                field === '__esModule' ||
+                field === '$$typeof' ||
+                field === 'default' ||
+                field === 'then' ||
+                field === 'toJSON'
+            ) {
+                return undefined;
+            }
 
             let extending_obj =
                 typeof extending_obj_getter === 'function' ? extending_obj_getter() : extending_obj_getter;
