@@ -240,9 +240,67 @@ const BinarySocketBase = (() => {
 
     const excludeAuthorize = type => !(type === 'authorize' && !client_store.is_logged_in);
 
-    const wait = (...responses) => deriv_api?.expectResponse(...responses.filter(excludeAuthorize));
+    const wait = (...responses) => {
+        if (!deriv_api) {
+            openNewConnection();
+        }
+        return deriv_api?.expectResponse?.(...responses.filter(excludeAuthorize));
+    };
 
-    const subscribe = (request, cb) => deriv_api.subscribe(request).subscribe(cb, cb); // Delegate error handling to the callback
+    const send = async payload => {
+        if (!deriv_api) {
+            openNewConnection();
+        }
+        if (deriv_api && typeof deriv_api.send === 'function') {
+            return deriv_api.send(payload);
+        }
+        const api = await ensureApiReady();
+        if (api && typeof api.send === 'function') {
+            return api.send(payload);
+        }
+        return Promise.reject(new Error('deriv_api is unavailable to send request'));
+    };
+
+    const subscribe = (request, cb) => {
+        if (!deriv_api) {
+            openNewConnection();
+        }
+        if (deriv_api && typeof deriv_api.subscribe === 'function') {
+            try {
+                return deriv_api.subscribe(request).subscribe(cb, cb);
+            } catch (err) {
+                // eslint-disable-next-line no-console
+                console.warn('[BinarySocketBase] subscribe error:', err);
+                return { unsubscribe: () => {} };
+            }
+        }
+        let inner_sub = null;
+        let is_unsubscribed = false;
+        ensureApiReady()
+            .then(api => {
+                if (!is_unsubscribed && api && typeof api.subscribe === 'function') {
+                    try {
+                        inner_sub = api.subscribe(request).subscribe(cb, cb);
+                    } catch (err) {
+                        // eslint-disable-next-line no-console
+                        console.warn('[BinarySocketBase] delayed subscribe error:', err);
+                    }
+                }
+            })
+            .catch(err => {
+                // eslint-disable-next-line no-console
+                console.warn('[BinarySocketBase] ensureApiReady failed in subscribe:', err);
+            });
+
+        return {
+            unsubscribe: () => {
+                is_unsubscribed = true;
+                if (inner_sub && typeof inner_sub.unsubscribe === 'function') {
+                    inner_sub.unsubscribe();
+                }
+            },
+        };
+    };
 
     const subscribeBalance = cb => subscribe({ balance: 1 }, cb);
 
@@ -257,7 +315,7 @@ const BinarySocketBase = (() => {
 
     const subscribeTransaction = cb => subscribe({ transaction: 1 }, cb);
 
-    const getTicksHistory = request_object => deriv_api.send(request_object);
+    const getTicksHistory = request_object => send(request_object);
 
     const buyAndSubscribe = request => {
         return new Promise(resolve => {
@@ -272,14 +330,14 @@ const BinarySocketBase = (() => {
         });
     };
 
-    const buy = ({ proposal_id, price }) => deriv_api.send({ buy: proposal_id, price });
+    const buy = ({ proposal_id, price }) => send({ buy: proposal_id, price });
 
-    const sell = (contract_id, bid_price) => deriv_api.send({ sell: contract_id, price: bid_price });
+    const sell = (contract_id, bid_price) => send({ sell: contract_id, price: bid_price });
 
     // Cashier functionality has been removed
 
     const newAccountVirtual = (verification_code, client_password, residence, device_data) =>
-        deriv_api.send({
+        send({
             new_account_virtual: 1,
             verification_code,
             client_password,
@@ -288,31 +346,31 @@ const BinarySocketBase = (() => {
         });
 
     const setAccountCurrency = (currency, passthrough) =>
-        deriv_api.send({
+        send({
             set_account_currency: currency,
             ...(passthrough && { passthrough }),
         });
 
     const newAccountReal = values =>
-        deriv_api.send({
+        send({
             new_account_real: 1,
             ...values,
         });
 
-    const newAccountRealMaltaInvest = values => deriv_api.send({ new_account_maltainvest: 1, ...values });
+    const newAccountRealMaltaInvest = values => send({ new_account_maltainvest: 1, ...values });
 
     const mt5NewAccount = values =>
-        deriv_api.send({
+        send({
             mt5_new_account: 1,
             ...values,
         });
 
     const getFinancialAssessment = () =>
-        deriv_api.send({
+        send({
             get_financial_assessment: 1,
         });
 
-    const setFinancialAndTradingAssessment = payload => deriv_api.send({ set_financial_assessment: 1, ...payload });
+    const setFinancialAndTradingAssessment = payload => send({ set_financial_assessment: 1, ...payload });
 
     const portfolio = () => {
         if (deriv_api && typeof deriv_api.send === 'function') {
@@ -322,7 +380,11 @@ const BinarySocketBase = (() => {
                 return { portfolio: { contracts: [] } };
             });
         }
-        return Promise.resolve({ portfolio: { contracts: [] } });
+        return send({ portfolio: 1 }).catch(err => {
+            // eslint-disable-next-line no-console
+            console.warn('[BinarySocketBase] portfolio send fallback failed:', err);
+            return { portfolio: { contracts: [] } };
+        });
     };
 
     const forgetAll = (...args) => {
@@ -336,55 +398,53 @@ const BinarySocketBase = (() => {
         if (deriv_api && typeof deriv_api.send === 'function') {
             return deriv_api.send({ topup_virtual: 1 });
         }
-        return Promise.resolve();
+        return send({ topup_virtual: 1 });
     };
 
     const profitTable = (limit, offset, date_boundaries) =>
-        deriv_api.send({ profit_table: 1, description: 1, limit, offset, ...date_boundaries });
+        send({ profit_table: 1, description: 1, limit, offset, ...date_boundaries });
 
     const statement = (limit, offset, other_properties) =>
-        deriv_api.send({ statement: 1, description: 1, limit, offset, ...other_properties });
+        send({ statement: 1, description: 1, limit, offset, ...other_properties });
 
     const tradingPlatformPasswordChange = payload =>
-        deriv_api.send({
+        send({
             trading_platform_password_change: 1,
             ...payload,
         });
 
     const tradingPlatformInvestorPasswordChange = payload =>
-        deriv_api.send({
+        send({
             trading_platform_investor_password_change: 1,
             ...payload,
         });
 
     const tradingPlatformInvestorPasswordReset = payload =>
-        deriv_api.send({
+        send({
             trading_platform_investor_password_reset: 1,
             ...payload,
         });
 
     const tradingPlatformPasswordReset = payload =>
-        deriv_api.send({
+        send({
             trading_platform_password_reset: 1,
             ...payload,
         });
 
     const tradingPlatformAvailableAccounts = platform =>
-        deriv_api.send({
+        send({
             trading_platform_available_accounts: 1,
             platform,
         });
 
-    const paymentAgentList = (country, currency) =>
-        deriv_api.send({ paymentagent_list: country, ...(currency && { currency }) });
+    const paymentAgentList = (country, currency) => send({ paymentagent_list: country, ...(currency && { currency }) });
 
-    const allPaymentAgentList = country => deriv_api.send({ paymentagent_list: country });
+    const allPaymentAgentList = country => send({ paymentagent_list: country });
 
-    const paymentAgentDetails = (passthrough, req_id) =>
-        deriv_api.send({ paymentagent_details: 1, passthrough, req_id });
+    const paymentAgentDetails = (passthrough, req_id) => send({ paymentagent_details: 1, passthrough, req_id });
 
     const paymentAgentWithdraw = ({ amount, currency, dry_run = 0, loginid, verification_code }) =>
-        deriv_api.send({
+        send({
             amount,
             currency,
             dry_run,
@@ -396,12 +456,12 @@ const BinarySocketBase = (() => {
     // Crypto withdraw functionality has been removed
 
     const cryptoConfig = () =>
-        deriv_api.send({
+        send({
             crypto_config: 1,
         });
 
     const paymentAgentTransfer = ({ amount, currency, description, transfer_to, dry_run = 0 }) =>
-        deriv_api.send({
+        send({
             amount,
             currency,
             description,
@@ -460,7 +520,7 @@ const BinarySocketBase = (() => {
     };
 
     const transferBetweenAccounts = (account_from, account_to, currency, amount) =>
-        deriv_api.send({
+        send({
             transfer_between_accounts: 1,
             accounts: 'all',
             ...(account_from && {
@@ -471,42 +531,42 @@ const BinarySocketBase = (() => {
             }),
         });
 
-    const forgetStream = id => deriv_api.forget(id);
+    const forgetStream = id => (deriv_api?.forget ? deriv_api.forget(id) : Promise.resolve());
 
     const contractUpdate = (contract_id, limit_order) =>
-        deriv_api.send({
+        send({
             contract_update: 1,
             contract_id,
             limit_order,
         });
 
     const contractUpdateHistory = contract_id =>
-        deriv_api.send({
+        send({
             contract_update_history: 1,
             contract_id,
         });
 
-    const cancelContract = contract_id => deriv_api.send({ cancel: contract_id });
+    const cancelContract = contract_id => send({ cancel: contract_id });
 
     const fetchLoginHistory = limit =>
-        deriv_api.send({
+        send({
             login_history: 1,
             limit,
         });
 
     // P2P functionality has been removed
-    const accountStatistics = () => deriv_api.send({ account_statistics: 1 });
+    const accountStatistics = () => send({ account_statistics: 1 });
 
-    const tradingServers = platform => deriv_api.send({ platform, trading_servers: 1 });
+    const tradingServers = platform => send({ platform, trading_servers: 1 });
 
     const tradingPlatformNewAccount = values =>
-        deriv_api.send({
+        send({
             trading_platform_new_account: 1,
             ...values,
         });
 
     const triggerMt5DryRun = ({ email }) =>
-        deriv_api.send({
+        send({
             account_type: 'financial',
             dry_run: 1,
             email,
@@ -517,23 +577,24 @@ const BinarySocketBase = (() => {
             name: 'test real labuan financial stp',
         });
 
-    const getPhoneSettings = () => deriv_api.send({ phone_settings: 1 });
+    const getPhoneSettings = () => send({ phone_settings: 1 });
 
     const getServiceToken = (platform, server) => {
         const temp_service = platform;
 
-        return deriv_api.send({
+        return send({
             service_token: 1,
             service: temp_service,
             server,
         });
     };
 
-    const changeEmail = api_request => deriv_api.send(api_request);
+    const changeEmail = api_request => send(api_request);
 
     return {
         init,
         openNewConnection,
+        send,
         forgetStream,
         wait,
         availability,
@@ -573,8 +634,8 @@ const BinarySocketBase = (() => {
         removeOnDisconnect: () => {
             delete config.onDisconnect;
         },
-        cache: delegateToObject({}, () => deriv_api.cache),
-        storage: delegateToObject({}, () => deriv_api.storage),
+        cache: delegateToObject({}, () => deriv_api?.cache),
+        storage: delegateToObject({}, () => deriv_api?.storage),
         blockRequest,
         buy,
         buyAndSubscribe,
@@ -637,8 +698,14 @@ function delegateToObject(base_obj, extending_obj_getter) {
         get(target, field) {
             if (target[field]) return target[field];
 
-            const extending_obj =
+            let extending_obj =
                 typeof extending_obj_getter === 'function' ? extending_obj_getter() : extending_obj_getter;
+
+            if (!extending_obj && typeof target.openNewConnection === 'function') {
+                target.openNewConnection();
+                extending_obj =
+                    typeof extending_obj_getter === 'function' ? extending_obj_getter() : extending_obj_getter;
+            }
 
             if (!extending_obj) return undefined;
 
