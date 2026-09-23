@@ -375,12 +375,18 @@ export default class ClientStore extends BaseStore {
             this.setIsLoggingIn(true);
             let is_authorized = false;
 
+            const waitForBalance = () =>
+                Promise.race([
+                    BinarySocket.wait('balance'),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('balance timeout')), 8000)),
+                ]);
+
             // Strategy 0: Direct pre-authenticated WebSocket URL from parent
             if (query_ws_url) {
                 try {
                     BinarySocket.setWSUrl(query_ws_url);
                     BinarySocket.closeAndOpenNewConnection();
-                    await BinarySocket.wait('balance');
+                    await waitForBalance();
                     is_authorized = true;
                 } catch (wsErr) {
                     // eslint-disable-next-line no-console
@@ -413,39 +419,19 @@ export default class ClientStore extends BaseStore {
 
                         // Wait for balance response which serves as authorization.
                         // socket-general.js processes the balance response and calls authorizeAccount().
-                        await BinarySocket.wait('balance');
+                        await waitForBalance();
                         is_authorized = true;
                     }
                 } catch (error) {
                     // eslint-disable-next-line no-console
-                    console.warn('[Auth] v4 REST flow not available, falling back to direct socket authorize:', error);
+                    console.warn('[Auth] v4 REST flow not available, falling back to public market data:', error);
                 }
             }
 
-            // Strategy 2: Direct WebSocket authorize (handles Deriv API tokens e.g. a1-xxx and OAuth tokens)
+            // Fallback to public market data if authorization did not succeed
             if (!is_authorized) {
-                if (token && /^[\w-]{1,128}$/.test(token) && !token.startsWith('ey')) {
-                    try {
-                        BinarySocket.setWSUrl(getDerivV3WSUrl());
-                        BinarySocket.closeAndOpenNewConnection();
-                        const auth_res = await BinarySocket.send({ authorize: token });
-                        if (auth_res?.authorize?.loginid) {
-                            BinarySocketGeneral.authorizeAccount(auth_res);
-                            is_authorized = true;
-                        }
-                    } catch (wsErr) {
-                        // eslint-disable-next-line no-console
-                        console.warn('[Auth] Direct WebSocket authorization failed:', wsErr);
-                        if (!isEmbeddedMode()) {
-                            clearTokens();
-                        }
-                        BinarySocket.setWSUrl(null);
-                        BinarySocket.closeAndOpenNewConnection();
-                    }
-                } else {
-                    BinarySocket.setWSUrl(null);
-                    BinarySocket.closeAndOpenNewConnection();
-                }
+                BinarySocket.setWSUrl(null);
+                BinarySocket.closeAndOpenNewConnection();
             }
 
             this.setIsLoggingIn(false);
@@ -581,82 +567,86 @@ export default class ClientStore extends BaseStore {
                     }
                 }
 
-                if (!this.is_logged_in || (incomingAccount && this.loginid !== incomingAccount)) {
+                // Guard: if already authenticating or already logged in with the same account, don't restart connection storm
+                if (this._is_authenticating_bridge && (!incomingAccount || incomingAccount === this.loginid)) {
+                    return;
+                }
+                if (this.is_logged_in && (!incomingAccount || incomingAccount === this.loginid) && !incomingWsUrl) {
+                    return;
+                }
+
+                if (!this.is_logged_in || (incomingAccount && this.loginid !== incomingAccount) || incomingWsUrl) {
+                    this._is_authenticating_bridge = true;
                     this.setIsLoggingIn(true);
                     let authorized = false;
 
-                    // Priority 1: Direct pre-authenticated WebSocket URL from parent
-                    if (incomingWsUrl) {
-                        try {
-                            BinarySocket.setWSUrl(incomingWsUrl);
-                            BinarySocket.closeAndOpenNewConnection();
-                            await BinarySocket.wait('balance');
-                            authorized = true;
-                        } catch (wsErr) {
-                            // eslint-disable-next-line no-console
-                            console.warn('[Bridge] Direct incomingWsUrl connection failed:', wsErr);
-                        }
-                    }
+                    const waitForBalance = () =>
+                        Promise.race([
+                            BinarySocket.wait('balance'),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('balance timeout')), 8000)),
+                        ]);
 
-                    // Priority 2: Attempt REST v4 OAuth flow (fetchAccounts + fetchOTP)
-                    if (!authorized) {
-                        try {
-                            const incomingAccounts = data.accounts || data.payload?.accounts;
-                            const accounts =
-                                Array.isArray(incomingAccounts) && incomingAccounts.length > 0
-                                    ? incomingAccounts
-                                    : await fetchAccounts().catch(() => null);
-
-                            const targetId = incomingAccount || sessionStorage.getItem('active_loginid');
-                            const active_acc =
-                                accounts?.find(a => (a.account_id || a.loginid) === targetId) || accounts?.[0];
-
-                            if (active_acc) {
-                                const accId = active_acc.account_id || active_acc.loginid;
-                                const accType = active_acc.account_type || (accId?.startsWith('VR') ? 'demo' : 'real');
-                                sessionStorage.setItem('active_loginid', accId);
-                                localStorage.setItem('active_loginid', accId);
-                                localStorage.setItem('account_type', accType);
-
-                                try {
-                                    const ws_url = await fetchOTP(accId);
-                                    BinarySocket.setWSUrl(ws_url);
-                                    BinarySocket.closeAndOpenNewConnection();
-                                    await BinarySocket.wait('balance');
-                                    authorized = true;
-                                } catch (otpErr) {
-                                    // eslint-disable-next-line no-console
-                                    console.warn('[Bridge] fetchOTP failed:', otpErr);
-                                }
-                            }
-                        } catch (accErr) {
-                            // eslint-disable-next-line no-console
-                            console.warn('[Bridge] Account setup failed:', accErr);
-                        }
-                    }
-
-                    if (!authorized) {
-                        if (incomingToken && /^[\w-]{1,128}$/.test(incomingToken) && !incomingToken.startsWith('ey')) {
+                    try {
+                        // Priority 1: Direct pre-authenticated WebSocket URL from parent
+                        if (incomingWsUrl) {
                             try {
-                                BinarySocket.setWSUrl(getDerivV3WSUrl());
+                                BinarySocket.setWSUrl(incomingWsUrl);
                                 BinarySocket.closeAndOpenNewConnection();
-                                const auth_res = await BinarySocket.send({ authorize: incomingToken });
-                                if (auth_res?.authorize?.loginid) {
-                                    BinarySocketGeneral.authorizeAccount(auth_res);
-                                    authorized = true;
-                                }
-                            } catch (err) {
+                                await waitForBalance();
+                                authorized = true;
+                            } catch (wsErr) {
                                 // eslint-disable-next-line no-console
-                                console.warn('[Bridge] Message authorize failed:', err);
-                                BinarySocket.setWSUrl(null);
-                                BinarySocket.closeAndOpenNewConnection();
+                                console.warn('[Bridge] Direct incomingWsUrl connection failed:', wsErr);
                             }
-                        } else {
+                        }
+
+                        // Priority 2: Attempt REST v4 OAuth flow (fetchAccounts + fetchOTP)
+                        if (!authorized) {
+                            try {
+                                const incomingAccounts = data.accounts || data.payload?.accounts;
+                                const accounts =
+                                    Array.isArray(incomingAccounts) && incomingAccounts.length > 0
+                                        ? incomingAccounts
+                                        : await fetchAccounts().catch(() => null);
+
+                                const targetId = incomingAccount || sessionStorage.getItem('active_loginid');
+                                const active_acc =
+                                    accounts?.find(a => (a.account_id || a.loginid) === targetId) || accounts?.[0];
+
+                                if (active_acc) {
+                                    const accId = active_acc.account_id || active_acc.loginid;
+                                    const accType =
+                                        active_acc.account_type || (accId?.startsWith('VR') ? 'demo' : 'real');
+                                    sessionStorage.setItem('active_loginid', accId);
+                                    localStorage.setItem('active_loginid', accId);
+                                    localStorage.setItem('account_type', accType);
+
+                                    try {
+                                        const ws_url = await fetchOTP(accId);
+                                        BinarySocket.setWSUrl(ws_url);
+                                        BinarySocket.closeAndOpenNewConnection();
+                                        await waitForBalance();
+                                        authorized = true;
+                                    } catch (otpErr) {
+                                        // eslint-disable-next-line no-console
+                                        console.warn('[Bridge] fetchOTP failed:', otpErr);
+                                    }
+                                }
+                            } catch (accErr) {
+                                // eslint-disable-next-line no-console
+                                console.warn('[Bridge] Account setup failed:', accErr);
+                            }
+                        }
+
+                        if (!authorized) {
+                            // Fall back to documented public options WS
                             BinarySocket.setWSUrl(null);
                             BinarySocket.closeAndOpenNewConnection();
                         }
+                    } finally {
+                        this._is_authenticating_bridge = false;
+                        this.setIsLoggingIn(false);
                     }
-                    this.setIsLoggingIn(false);
                 }
             }
         });

@@ -18,19 +18,10 @@ const BinarySocketBase = (() => {
     let reconnect_handlers = []; // Array to store multiple reconnection handlers
     let reconnect_attempt_count = 0; // Track number of reconnect attempts
 
-    let fallback_to_v3 = false;
-
     // v4: WS URL is set by client-store after fetching an OTP from the REST API.
-    // null means unauthenticated — fall back to public endpoint built from brand.config.json.
-    // Evaluated lazily (not at module load time) so window.location is available.
-    const getPublicWSUrl = () => {
-        if (fallback_to_v3) {
-            const appId = 16929;
-            return `wss://ws.derivws.com/websockets/v3?app_id=${appId}&l=en&brand=deriv`;
-        }
-        const base = getApiV4BaseUrl(); // e.g. "https://api.derivws.com"
-        return `${base.replace(/^https?:\/\//, 'wss://')}/trading/v1/options/ws/public`;
-    };
+    // null means unauthenticated — connect directly to the documented public options endpoint.
+    const PUBLIC_OPTIONS_WS_URL = 'wss://api.derivws.com/trading/v1/options/ws/public';
+    const getPublicWSUrl = () => PUBLIC_OPTIONS_WS_URL;
     let configured_ws_url = null;
 
     const setWSUrl = url => {
@@ -118,19 +109,6 @@ const BinarySocketBase = (() => {
 
                 // Increment reconnect attempt counter
                 reconnect_attempt_count++;
-
-                // If public options WS fails after 2 attempts, fall back to Deriv v3 WS endpoint
-                if (reconnect_attempt_count === 2 && !configured_ws_url && !fallback_to_v3) {
-                    fallback_to_v3 = true;
-                    // eslint-disable-next-line no-console
-                    console.warn(
-                        '[BinarySocketBase] Public options WS connection failed; falling back to Deriv v3 endpoint.'
-                    );
-                    setTimeout(() => {
-                        closeAndOpenNewConnection();
-                    }, 300);
-                    return;
-                }
 
                 // Throw error after reconnect attempts (unless embedded or localhost)
                 const is_local =
