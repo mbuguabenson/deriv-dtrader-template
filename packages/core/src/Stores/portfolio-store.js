@@ -119,9 +119,32 @@ export default class PortfolioStore extends BaseStore {
             this.clearTable();
         }
         this.is_loading = true;
-        WS.portfolio().then(this.portfolioHandler);
-        WS.subscribeProposalOpenContract(null, this.proposalOpenContractQueueHandler);
-        WS.subscribeTransaction(this.transactionHandler);
+        if (WS && typeof WS.portfolio === 'function') {
+            WS.portfolio()
+                .then(this.portfolioHandler)
+                .catch(err => {
+                    // eslint-disable-next-line no-console
+                    console.warn('[PortfolioStore] WS.portfolio error:', err);
+                    this.is_loading = false;
+                });
+        } else if (WS && typeof WS.send === 'function') {
+            WS.send({ portfolio: 1 })
+                .then(this.portfolioHandler)
+                .catch(err => {
+                    // eslint-disable-next-line no-console
+                    console.warn('[PortfolioStore] WS.send portfolio error:', err);
+                    this.is_loading = false;
+                });
+        } else {
+            this.is_loading = false;
+        }
+
+        if (WS && typeof WS.subscribeProposalOpenContract === 'function') {
+            WS.subscribeProposalOpenContract(null, this.proposalOpenContractQueueHandler);
+        }
+        if (WS && typeof WS.subscribeTransaction === 'function') {
+            WS.subscribeTransaction(this.transactionHandler);
+        }
         this.has_subscribed_to_poc_and_transaction = true;
     }
 

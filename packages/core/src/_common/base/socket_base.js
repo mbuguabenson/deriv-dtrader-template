@@ -314,6 +314,31 @@ const BinarySocketBase = (() => {
 
     const setFinancialAndTradingAssessment = payload => deriv_api.send({ set_financial_assessment: 1, ...payload });
 
+    const portfolio = () => {
+        if (deriv_api && typeof deriv_api.send === 'function') {
+            return deriv_api.send({ portfolio: 1 }).catch(err => {
+                // eslint-disable-next-line no-console
+                console.warn('[BinarySocketBase] portfolio request failed:', err);
+                return { portfolio: { contracts: [] } };
+            });
+        }
+        return Promise.resolve({ portfolio: { contracts: [] } });
+    };
+
+    const forgetAll = (...args) => {
+        if (deriv_api && typeof deriv_api.forgetAll === 'function') {
+            return deriv_api.forgetAll(...args);
+        }
+        return Promise.resolve();
+    };
+
+    const topupVirtual = () => {
+        if (deriv_api && typeof deriv_api.send === 'function') {
+            return deriv_api.send({ topup_virtual: 1 });
+        }
+        return Promise.resolve();
+    };
+
     const profitTable = (limit, offset, date_boundaries) =>
         deriv_api.send({ profit_table: 1, description: 1, limit, offset, ...date_boundaries });
 
@@ -598,6 +623,9 @@ const BinarySocketBase = (() => {
         triggerMt5DryRun,
         getServiceToken,
         changeEmail,
+        portfolio,
+        forgetAll,
+        topupVirtual,
         setWSUrl,
         getWSUrl,
         getPublicWSUrl,
