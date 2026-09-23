@@ -5,12 +5,14 @@
         "baseUrl": "./",
         "paths": {
             "@deriv/*": ["../*/src"]
-        }
+        },
+        "types": ["jest", "@testing-library/jest-dom", "node"]
     },
     "include": [
         "src",
         "./@types/react-div-100vh/react-div-100vh-config.d.ts",
         "./@types/@enykeev/react-virtualized/dist/es/AutoSizer.d.ts",
         "./@types/react-drag-drawer/react-drag-drawer-config.d.ts"
-    ]
+    ],
+    "exclude": ["**/__tests__/*", "**/*.spec.tsx", "**/*.spec.ts"]
 }

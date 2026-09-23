@@ -4,7 +4,7 @@ import { LegacyWarningIcon, LegacyInformationIcon, LegacyAnnouncementIcon, Legac
 import Text from '../text';
 import './inline-message.scss';
 
-const type_icon_mapper = {
+const type_icon_mapper: Record<string, { Component: React.ComponentType<any>; fill: string }> = {
     warning: { Component: LegacyWarningIcon, fill: 'var(--color-text-warning)' },
     information: { Component: LegacyInformationIcon, fill: 'var(--color-text-info)' },
     announcement: { Component: LegacyAnnouncementIcon, fill: 'var(--color-text-success)' },
@@ -19,7 +19,7 @@ const size_to_font_size_mapper = {
 };
 
 type TProps = {
-    type?: keyof typeof type_icon_mapper;
+    type?: 'warning' | 'information' | 'announcement' | 'error';
     size?: 'xs' | 'sm' | 'md' | 'lg';
     className?: string;
     id?: string;
