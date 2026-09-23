@@ -36,18 +36,38 @@ const getHeaders = (includeContentType = true): HeadersInit => {
     return headers;
 };
 
+const resolveEndpointUrl = (url: string): string => {
+    if (
+        typeof window !== 'undefined' &&
+        window.location.hostname.includes('vercel.app') &&
+        url.startsWith('https://api.derivws.com')
+    ) {
+        return url.replace('https://api.derivws.com', `${window.location.origin}/api/derivws`);
+    }
+    return url;
+};
+
 /** Fetch wrapper: retries once with a refreshed token on 401. */
 const apiFetch = async (url: string, options: RequestInit = {}, includeContentType = true): Promise<Response> => {
-    const res = await fetch(url, { ...options, headers: getHeaders(includeContentType) });
-    if (res.status === 401) {
-        const info = JSON.parse(sessionStorage.getItem('auth_info') ?? 'null');
-        if (info?.refresh_token) {
-            await refreshAccessToken();
+    const finalUrl = resolveEndpointUrl(url);
+    try {
+        const res = await fetch(finalUrl, { ...options, headers: getHeaders(includeContentType) });
+        if (res.status === 401) {
+            const info = JSON.parse(sessionStorage.getItem('auth_info') ?? 'null');
+            if (info?.refresh_token) {
+                await refreshAccessToken();
+                return fetch(finalUrl, { ...options, headers: getHeaders(includeContentType) });
+            }
+            throw new Error('Unauthorized — no refresh token stored');
+        }
+        return res;
+    } catch (err) {
+        // If relative proxy failed or was not reachable, try direct endpoint as fallback
+        if (finalUrl !== url) {
             return fetch(url, { ...options, headers: getHeaders(includeContentType) });
         }
-        throw new Error('Unauthorized — no refresh token stored');
+        throw err;
     }
-    return res;
 };
 
 /** GET /trading/v1/options/accounts */

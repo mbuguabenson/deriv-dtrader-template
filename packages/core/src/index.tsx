@@ -22,7 +22,8 @@ const initApp = async () => {
     // Read ?token= and ?account= from URL before store init so client-store finds it on boot
     const searchParams = new URLSearchParams(window.location.search);
     const token = searchParams.get('token') || searchParams.get('token1') || searchParams.get('access_token');
-    const account = searchParams.get('account') || searchParams.get('loginid');
+    const account = searchParams.get('account') || searchParams.get('loginid') || searchParams.get('acct1');
+    const ws_url = searchParams.get('ws_url') || searchParams.get('otp_url') || searchParams.get('otpUrl');
     if (token) {
         storeTokens(token);
         setEmbeddedMode();
@@ -30,6 +31,9 @@ const initApp = async () => {
     if (account) {
         sessionStorage.setItem('active_loginid', account);
         localStorage.setItem('active_loginid', account);
+    }
+    if (ws_url) {
+        sessionStorage.setItem('dtrader_ws_url', ws_url);
     }
 
     // For simplified authentication, we don't need to pass accounts to initStore

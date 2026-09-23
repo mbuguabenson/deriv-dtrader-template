@@ -342,50 +342,84 @@ export default class ClientStore extends BaseStore {
             storeTokens(query_token);
             setEmbeddedMode();
         }
-        const requested_account = search_params?.get('account') || search_params?.get('loginid');
+        const requested_account =
+            search_params?.get('account') || search_params?.get('loginid') || search_params?.get('acct1');
         if (requested_account) {
             sessionStorage.setItem('active_loginid', requested_account);
             localStorage.setItem('active_loginid', requested_account);
+            this.setLoginId(requested_account);
+            if (!this.current_account) {
+                this.current_account = {
+                    loginid: requested_account,
+                    balance: '10000.00',
+                    currency: search_params?.get('cur1') || search_params?.get('currency') || 'USD',
+                    email: '',
+                    landing_company_shortcode: 'svg',
+                    residence: '',
+                    session_start: parseInt(moment().utc().valueOf() / 1000),
+                };
+            }
         }
 
         this.setupBridgeListener();
 
         const token = query_token || getStoredToken();
+        const query_ws_url =
+            search_params?.get('ws_url') ||
+            search_params?.get('otp_url') ||
+            search_params?.get('otpUrl') ||
+            sessionStorage.getItem('dtrader_ws_url');
+
         if (token) {
             // Set is_logging_in to true while we wait for authorization
             this.setIsLoggingIn(true);
             let is_authorized = false;
 
-            // Strategy 1: Attempt REST v4 OAuth flow (fetchAccounts + fetchOTP)
-            try {
-                const accounts = await fetchAccounts();
-                // Embedded mode: respect account param or active_loginid
-                const active_loginid =
-                    requested_account ||
-                    sessionStorage.getItem('active_loginid') ||
-                    localStorage.getItem('active_loginid');
-                const active_account =
-                    accounts?.find(a => a.account_id === active_loginid) ||
-                    accounts?.find(a => a.account_type === 'demo') ||
-                    accounts?.[0];
-
-                if (active_account) {
-                    sessionStorage.setItem('active_loginid', active_account.account_id);
-                    localStorage.setItem('active_loginid', active_account.account_id);
-                    localStorage.setItem('account_type', active_account.account_type);
-
-                    const ws_url = await fetchOTP(active_account.account_id);
-                    BinarySocket.setWSUrl(ws_url);
+            // Strategy 0: Direct pre-authenticated WebSocket URL from parent
+            if (query_ws_url) {
+                try {
+                    BinarySocket.setWSUrl(query_ws_url);
                     BinarySocket.closeAndOpenNewConnection();
-
-                    // Wait for balance response which serves as authorization.
-                    // socket-general.js processes the balance response and calls authorizeAccount().
                     await BinarySocket.wait('balance');
                     is_authorized = true;
+                } catch (wsErr) {
+                    // eslint-disable-next-line no-console
+                    console.warn('[Auth] query_ws_url direct connection failed:', wsErr);
                 }
-            } catch (error) {
-                // eslint-disable-next-line no-console
-                console.warn('[Auth] v4 REST flow not available, falling back to direct socket authorize:', error);
+            }
+
+            // Strategy 1: Attempt REST v4 OAuth flow (fetchAccounts + fetchOTP)
+            if (!is_authorized) {
+                try {
+                    const accounts = await fetchAccounts();
+                    // Embedded mode: respect account param or active_loginid
+                    const active_loginid =
+                        requested_account ||
+                        sessionStorage.getItem('active_loginid') ||
+                        localStorage.getItem('active_loginid');
+                    const active_account =
+                        accounts?.find(a => a.account_id === active_loginid) ||
+                        accounts?.find(a => a.account_type === 'demo') ||
+                        accounts?.[0];
+
+                    if (active_account) {
+                        sessionStorage.setItem('active_loginid', active_account.account_id);
+                        localStorage.setItem('active_loginid', active_account.account_id);
+                        localStorage.setItem('account_type', active_account.account_type);
+
+                        const ws_url = await fetchOTP(active_account.account_id);
+                        BinarySocket.setWSUrl(ws_url);
+                        BinarySocket.closeAndOpenNewConnection();
+
+                        // Wait for balance response which serves as authorization.
+                        // socket-general.js processes the balance response and calls authorizeAccount().
+                        await BinarySocket.wait('balance');
+                        is_authorized = true;
+                    }
+                } catch (error) {
+                    // eslint-disable-next-line no-console
+                    console.warn('[Auth] v4 REST flow not available, falling back to direct socket authorize:', error);
+                }
             }
 
             // Strategy 2: Direct WebSocket authorize (handles Deriv API tokens e.g. a1-xxx and OAuth tokens)
@@ -517,6 +551,8 @@ export default class ClientStore extends BaseStore {
                 data.activeAccountId ||
                 data.payload?.loginid ||
                 data.payload?.loginId;
+            const incomingWsUrl =
+                data.ws_url || data.otpUrl || data.otp_url || data.payload?.ws_url || data.payload?.otpUrl;
 
             if (
                 incomingToken &&
@@ -531,43 +567,72 @@ export default class ClientStore extends BaseStore {
                 if (incomingAccount) {
                     sessionStorage.setItem('active_loginid', incomingAccount);
                     localStorage.setItem('active_loginid', incomingAccount);
+                    this.setLoginId(incomingAccount);
+                    if (!this.current_account) {
+                        this.current_account = {
+                            loginid: incomingAccount,
+                            balance: data.balance || data.payload?.balance || '10000.00',
+                            currency: data.currency || data.cur1 || 'USD',
+                            email: data.userProfile?.email || '',
+                            landing_company_shortcode: 'svg',
+                            residence: data.userProfile?.country || '',
+                            session_start: parseInt(moment().utc().valueOf() / 1000),
+                        };
+                    }
                 }
 
                 if (!this.is_logged_in || (incomingAccount && this.loginid !== incomingAccount)) {
                     this.setIsLoggingIn(true);
                     let authorized = false;
-                    try {
-                        const incomingAccounts = data.accounts || data.payload?.accounts;
-                        const accounts =
-                            Array.isArray(incomingAccounts) && incomingAccounts.length > 0
-                                ? incomingAccounts
-                                : await fetchAccounts().catch(() => null);
 
-                        const targetId = incomingAccount || sessionStorage.getItem('active_loginid');
-                        const active_acc =
-                            accounts?.find(a => (a.account_id || a.loginid) === targetId) || accounts?.[0];
-
-                        if (active_acc) {
-                            const accId = active_acc.account_id || active_acc.loginid;
-                            const accType = active_acc.account_type || (accId?.startsWith('VR') ? 'demo' : 'real');
-                            sessionStorage.setItem('active_loginid', accId);
-                            localStorage.setItem('active_loginid', accId);
-                            localStorage.setItem('account_type', accType);
-
-                            try {
-                                const ws_url = await fetchOTP(accId);
-                                BinarySocket.setWSUrl(ws_url);
-                                BinarySocket.closeAndOpenNewConnection();
-                                await BinarySocket.wait('balance');
-                                authorized = true;
-                            } catch (otpErr) {
-                                // eslint-disable-next-line no-console
-                                console.warn('[Bridge] fetchOTP failed:', otpErr);
-                            }
+                    // Priority 1: Direct pre-authenticated WebSocket URL from parent
+                    if (incomingWsUrl) {
+                        try {
+                            BinarySocket.setWSUrl(incomingWsUrl);
+                            BinarySocket.closeAndOpenNewConnection();
+                            await BinarySocket.wait('balance');
+                            authorized = true;
+                        } catch (wsErr) {
+                            // eslint-disable-next-line no-console
+                            console.warn('[Bridge] Direct incomingWsUrl connection failed:', wsErr);
                         }
-                    } catch (accErr) {
-                        // eslint-disable-next-line no-console
-                        console.warn('[Bridge] Account setup failed:', accErr);
+                    }
+
+                    // Priority 2: Attempt REST v4 OAuth flow (fetchAccounts + fetchOTP)
+                    if (!authorized) {
+                        try {
+                            const incomingAccounts = data.accounts || data.payload?.accounts;
+                            const accounts =
+                                Array.isArray(incomingAccounts) && incomingAccounts.length > 0
+                                    ? incomingAccounts
+                                    : await fetchAccounts().catch(() => null);
+
+                            const targetId = incomingAccount || sessionStorage.getItem('active_loginid');
+                            const active_acc =
+                                accounts?.find(a => (a.account_id || a.loginid) === targetId) || accounts?.[0];
+
+                            if (active_acc) {
+                                const accId = active_acc.account_id || active_acc.loginid;
+                                const accType = active_acc.account_type || (accId?.startsWith('VR') ? 'demo' : 'real');
+                                sessionStorage.setItem('active_loginid', accId);
+                                localStorage.setItem('active_loginid', accId);
+                                localStorage.setItem('account_type', accType);
+
+                                try {
+                                    const ws_url = await fetchOTP(accId);
+                                    BinarySocket.setWSUrl(ws_url);
+                                    BinarySocket.closeAndOpenNewConnection();
+                                    await BinarySocket.wait('balance');
+                                    authorized = true;
+                                } catch (otpErr) {
+                                    // eslint-disable-next-line no-console
+                                    console.warn('[Bridge] fetchOTP failed:', otpErr);
+                                }
+                            }
+                        } catch (accErr) {
+                            // eslint-disable-next-line no-console
+                            console.warn('[Bridge] Account setup failed:', accErr);
+                        }
                     }
 
                     if (!authorized) {
