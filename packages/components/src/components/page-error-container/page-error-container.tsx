@@ -18,19 +18,23 @@ const PageErrorContainer = ({ error_header, error_messages, ...props }: TPageErr
     let errorMessage: string | undefined;
     if (hasMessages) {
         const firstMessage = error_messages[0];
-        if (firstMessage && typeof firstMessage === 'object' && 'message' in firstMessage) {
-            errorMessage = firstMessage.message;
-        } else if (typeof firstMessage === 'string') {
+        if (typeof firstMessage === 'string') {
             errorMessage = firstMessage;
+        } else if (firstMessage && typeof firstMessage === 'object') {
+            if ('message' in firstMessage && typeof (firstMessage as any).message === 'string') {
+                errorMessage = (firstMessage as any).message;
+            } else if ('props' in firstMessage && (firstMessage as any).props?.i18n_default_text) {
+                errorMessage = (firstMessage as any).props.i18n_default_text;
+            }
         }
     }
 
-    // Full page error with header and messages (e.g., 404, specific page errors)
+    // Full page error with messages (e.g., 404, specific page errors, error notifications)
     if (error_header && hasMessages) {
         return <PageError header={error_header} messages={error_messages} {...props} />;
     }
 
-    // Uncaught errors from ErrorBoundary → show fullscreen error with optional error message
+    // Uncaught errors from ErrorBoundary or missing header → show fullscreen error with extracted error message
     return <FullscreenError error_message={errorMessage} />;
 };
 

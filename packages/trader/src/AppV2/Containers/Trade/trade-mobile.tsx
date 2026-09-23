@@ -124,28 +124,6 @@ const Trade = observer(() => {
                         />
                         <div className='trade__market-selector-guide'>
                             <MarketSelector />
-                            <button
-                                type='button'
-                                onClick={() => history.push(routes.autotrades)}
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '4px',
-                                    background: 'linear-gradient(135deg, rgba(0, 167, 158, 0.2), rgba(255, 68, 79, 0.2))',
-                                    border: '1px solid rgba(0, 167, 158, 0.5)',
-                                    borderRadius: '16px',
-                                    padding: '4px 10px',
-                                    fontSize: '11px',
-                                    fontWeight: 700,
-                                    color: is_dark_mode_on ? '#fff' : '#111',
-                                    cursor: 'pointer',
-                                    marginLeft: 'auto',
-                                    marginRight: '8px',
-                                    whiteSpace: 'nowrap',
-                                }}
-                            >
-                                <span>🤖 Elite Pro</span>
-                            </button>
                             <Guide show_guide_for_selected_contract />
                         </div>
                         {isDigitTradeType(contract_type) && <CurrentSpot />}

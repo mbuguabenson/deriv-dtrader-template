@@ -844,12 +844,20 @@ export default class TradeStore extends BaseStore {
         const { active_symbols, error } = await WS.activeSymbols();
 
         if (error) {
-            showError({ message: localize('Trading is unavailable at this time.') });
+            if (!this.active_symbols?.length) {
+                showError({ message: localize('Trading is unavailable at this time.') });
+            } else {
+                // eslint-disable-next-line no-console
+                console.warn('[TradeStore] Error refreshing active symbols:', error);
+            }
             return;
         }
 
         if (!active_symbols?.length) {
-            showUnavailableLocationError(showError);
+            if (!this.active_symbols?.length) {
+                showUnavailableLocationError(showError);
+            }
+            return;
         }
         await this.processNewValuesAsync({ active_symbols });
     }

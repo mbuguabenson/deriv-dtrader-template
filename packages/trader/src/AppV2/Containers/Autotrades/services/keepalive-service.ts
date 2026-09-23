@@ -33,8 +33,8 @@ class KeepAliveService {
     private audioCtx: AudioContext | null = null;
     private reloadScheduled = false;
 
-    private readonly PING_INTERVAL_MS = 25_000;       // 25s heartbeat
-    private readonly MAX_SILENCE_MS = 90_000;          // 90s = WS dead
+    private readonly PING_INTERVAL_MS = 25_000; // 25s heartbeat
+    private readonly MAX_SILENCE_MS = 90_000; // 90s = WS dead
     private readonly ACTIVITY_INTERVAL_MS = 5 * 60_000; // 5 min activity sim
 
     // ---------------------------------------------------------------
@@ -111,20 +111,20 @@ class KeepAliveService {
             if (!this.isRunning || this.reloadScheduled) return;
             const silence = Date.now() - this.lastPingSuccess;
             if (silence > this.MAX_SILENCE_MS) {
-                this.reloadScheduled = true;
                 const silenceSec = Math.round(silence / 1000);
                 // eslint-disable-next-line no-console
-                console.warn(`[KeepAlive] WS silent for ${silenceSec}s — scheduling reconnect`);
+                console.warn(`[KeepAlive] WS silent for ${silenceSec}s — attempting soft ping recovery`);
                 this.emit('ws_dead', `No response for ${silenceSec}s`);
-
-                // Reload page after 3 seconds to reconnect WS cleanly
-                setTimeout(() => {
-                    if (this.reloadScheduled) {
-                        window.location.reload();
-                    }
-                }, 3000);
+                // Attempt soft recovery instead of killing the entire page session
+                if (WS && typeof WS.send === 'function') {
+                    WS.send({ ping: 1 })
+                        .then(() => {
+                            this.lastPingSuccess = Date.now();
+                        })
+                        .catch(() => {});
+                }
             }
-        }, 15_000);
+        }, 30_000);
     }
 
     // ---------------------------------------------------------------
@@ -188,8 +188,7 @@ class KeepAliveService {
     // ---------------------------------------------------------------
     private startAntiThrottle() {
         try {
-            const AudioContextClass: typeof AudioContext =
-                window.AudioContext || (window as any).webkitAudioContext;
+            const AudioContextClass: typeof AudioContext = window.AudioContext || (window as any).webkitAudioContext;
             if (!AudioContextClass) return;
 
             this.audioCtx = new AudioContextClass();

@@ -129,38 +129,15 @@ const TradeDesktop = observer(() => {
                     })}
                 >
                     <div className='trade__header'>
-                        <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                        <div
+                            style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, overflow: 'hidden' }}
+                        >
                             <TradeTypes
                                 contract_type={contract_type}
                                 onTradeTypeSelect={onTradeTypeSelect}
                                 trade_types={trade_types}
                                 is_dark_mode_on={is_dark_mode_on}
                             />
-                            <button
-                                type='button'
-                                className='trade__header-autotrades-btn'
-                                onClick={() => history.push(routes.autotrades)}
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    background: 'linear-gradient(135deg, rgba(0, 167, 158, 0.16), rgba(255, 68, 79, 0.16))',
-                                    border: '1px solid rgba(0, 167, 158, 0.5)',
-                                    borderRadius: '16px',
-                                    padding: '5px 12px',
-                                    cursor: 'pointer',
-                                    fontSize: '12px',
-                                    fontWeight: 700,
-                                    color: is_dark_mode_on ? '#fff' : '#111',
-                                    marginLeft: '12px',
-                                    whiteSpace: 'nowrap',
-                                    boxShadow: '0 2px 6px rgba(0, 167, 158, 0.2)',
-                                    flexShrink: 0,
-                                }}
-                            >
-                                <span style={{ fontSize: '13px' }}>🤖</span>
-                                <span>Elite Pro Autotrades</span>
-                            </button>
                         </div>
                         <AccountHeader />
                     </div>

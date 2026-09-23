@@ -21,23 +21,10 @@ const BinarySocketGeneral = (() => {
     };
 
     const onConnectionError = () => {
-        const is_local =
-            typeof window !== 'undefined' &&
-            (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
-        if (isEmbeddedMode() || (typeof window !== 'undefined' && window.top !== window) || is_local) {
-            // eslint-disable-next-line no-console
-            console.warn(
-                '[BinarySocketGeneral] Connection error occurred in embedded/local mode; suppressing fatal error dialog.'
-            );
-            return;
-        }
-
-        localStorage.removeItem('active_loginid');
-
-        common_store.setError(true, {
-            message: localize('Connection failed. Please refresh this page to continue.'),
-        });
+        // eslint-disable-next-line no-console
+        console.warn(
+            '[BinarySocketGeneral] Connection error occurred; suppressing fatal error dialog to allow auto-reconnection.'
+        );
     };
 
     const onOpen = is_ready => {
@@ -99,9 +86,8 @@ const BinarySocketGeneral = (() => {
                 }
                 break;
             case 'RateLimit':
-                common_store.setError(true, {
-                    message: localize('You have reached the rate limit of requests per second. Please try later.'),
-                });
+                // eslint-disable-next-line no-console
+                console.warn('[BinarySocketGeneral] Rate limit reached for request:', response);
                 break;
             case 'InvalidAppID':
                 common_store.setError(true, { message: mapErrorMessage(response.error) });

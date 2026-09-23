@@ -124,21 +124,35 @@ export const exchangeCodeForToken = async (
 const AUTH_INFO_KEY = 'auth_info';
 
 export const storeTokens = (access_token: string, refresh_token?: string, expires_in?: number): void => {
-    sessionStorage.setItem(
-        AUTH_INFO_KEY,
-        JSON.stringify({
-            access_token,
-            refresh_token,
-            expires_at: expires_in ? Date.now() + expires_in * 1000 : null,
-        })
-    );
+    try {
+        sessionStorage.setItem(
+            AUTH_INFO_KEY,
+            JSON.stringify({
+                access_token,
+                refresh_token,
+                expires_at: expires_in ? Date.now() + expires_in * 1000 : null,
+            })
+        );
+    } catch {
+        // sessionStorage might be restricted in some iframe contexts
+    }
+    try {
+        if (typeof localStorage !== 'undefined' && access_token) {
+            localStorage.setItem('token1', access_token);
+            localStorage.setItem('token', access_token);
+            localStorage.setItem('active_token', access_token);
+        }
+    } catch {
+        // localStorage might be restricted
+    }
 };
 
 export const getStoredToken = (): string | null => {
     try {
         const info = JSON.parse(sessionStorage.getItem(AUTH_INFO_KEY) ?? 'null');
         if (info) {
-            if (info.expires_at && Date.now() >= info.expires_at) {
+            // Only auto-clear if not in embedded mode and refresh token is available
+            if (info.expires_at && Date.now() >= info.expires_at && !isEmbeddedMode() && info.refresh_token) {
                 clearTokens();
                 return null;
             }
@@ -157,18 +171,45 @@ export const getStoredToken = (): string | null => {
 };
 
 export const clearTokens = (): void => {
-    sessionStorage.removeItem(AUTH_INFO_KEY);
+    try {
+        sessionStorage.removeItem(AUTH_INFO_KEY);
+        if (typeof localStorage !== 'undefined') {
+            localStorage.removeItem('token1');
+            localStorage.removeItem('token');
+            localStorage.removeItem('active_token');
+        }
+    } catch {
+        // ignore
+    }
 };
 
 export const setEmbeddedMode = (): void => {
-    sessionStorage.setItem('is_embedded', 'true');
+    try {
+        sessionStorage.setItem('is_embedded', 'true');
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('is_embedded', 'true');
+        }
+    } catch {
+        // ignore
+    }
 };
 
 export const isEmbeddedMode = (): boolean => {
-    if (typeof window !== 'undefined' && window.self !== window.top) {
-        return true;
+    if (typeof window !== 'undefined') {
+        if (window.self !== window.top) return true;
+        const search = window.location.search;
+        if (search.includes('is_embedded=true') || search.includes('token=') || search.includes('acct1=')) {
+            return true;
+        }
     }
-    return sessionStorage.getItem('is_embedded') === 'true';
+    try {
+        return (
+            sessionStorage.getItem('is_embedded') === 'true' ||
+            (typeof localStorage !== 'undefined' && localStorage.getItem('is_embedded') === 'true')
+        );
+    } catch {
+        return false;
+    }
 };
 
 // ---------------------------------------------------------------------------

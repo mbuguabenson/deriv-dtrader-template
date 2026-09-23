@@ -8,13 +8,35 @@ class ErrorBoundary extends React.Component {
         this.state = { hasError: false };
     }
     componentDidCatch = (error, info) => {
+        // eslint-disable-next-line no-console
+        console.error('[DTrader ErrorBoundary caught error]:', error, info);
         this.setState({
             hasError: true,
             error,
             info,
         });
     };
-    render = () => (this.state.hasError ? <ErrorComponent should_show_refresh={true} /> : this.props.children);
+
+    handleRetry = () => {
+        this.setState({ hasError: false, error: null, info: null });
+    };
+
+    render = () => {
+        if (this.state.hasError) {
+            return (
+                <ErrorComponent
+                    header='An unexpected error occurred'
+                    message={
+                        this.state.error?.message || "We're sorry for the disruption. Please click Retry to continue."
+                    }
+                    redirect_label='Retry'
+                    redirectOnClick={this.handleRetry}
+                    should_show_refresh={true}
+                />
+            );
+        }
+        return this.props.children;
+    };
 }
 
 ErrorBoundary.propTypes = {

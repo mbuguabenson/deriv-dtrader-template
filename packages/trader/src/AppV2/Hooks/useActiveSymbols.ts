@@ -20,7 +20,13 @@ const ACTIVE_SYMBOLS_CACHE_CONFIG = {
 const useActiveSymbols = () => {
     const { common } = useStore();
     const { showError } = common;
-    const { contract_type, is_vanilla, is_turbos, setActiveSymbolsV2 } = useTraderStore();
+    const {
+        contract_type,
+        is_vanilla,
+        is_turbos,
+        setActiveSymbolsV2,
+        active_symbols: currentSymbols,
+    } = useTraderStore();
 
     const getContractTypesList = (): TContractTypesList => {
         if (is_turbos) return [CONTRACT_TYPES.TURBOS.LONG, CONTRACT_TYPES.TURBOS.SHORT] as TContractTypesList;
@@ -39,15 +45,18 @@ const useActiveSymbols = () => {
         },
         options: {
             cacheTime: ACTIVE_SYMBOLS_CACHE_CONFIG.CACHE_TIME,
+            staleTime: 5 * 60 * 1000,
+            retry: 3,
         },
     });
 
-    // Handle query errors
+    // Handle query errors non-fatally to avoid disrupting active trading sessions
     useEffect(() => {
         if (queryError) {
-            showError({ message: localize('Failed to load market data. Please refresh the page.') });
+            // eslint-disable-next-line no-console
+            console.warn('[useActiveSymbols] Background error loading active symbols:', queryError);
         }
-    }, [queryError, showError]);
+    }, [queryError]);
 
     // Update MobX store when data is received (for trade-store internal operations)
     useEffect(() => {
@@ -55,12 +64,12 @@ const useActiveSymbols = () => {
 
         const { active_symbols = [] } = response;
 
-        if (!active_symbols?.length) {
-            showError({ message: localize('Trading is unavailable at this time.') });
-            setActiveSymbolsV2([]);
-        } else {
+        if (active_symbols?.length) {
             // Update store with fresh data
             setActiveSymbolsV2(active_symbols);
+        } else if (!currentSymbols?.length) {
+            // eslint-disable-next-line no-console
+            console.warn('[useActiveSymbols] Empty active symbols returned from query');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [response]);

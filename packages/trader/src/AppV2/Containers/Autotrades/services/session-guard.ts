@@ -113,19 +113,22 @@ class SessionGuardService {
             const silenceDuration = Date.now() - this.lastPingSuccess;
             if (silenceDuration > this.MAX_SILENCE_MS) {
                 // eslint-disable-next-line no-console
-                console.warn('[SessionGuard] WS silent for', Math.round(silenceDuration / 1000), 's — triggering reconnect');
+                console.warn(
+                    '[SessionGuard] WS silent for',
+                    Math.round(silenceDuration / 1000),
+                    's — triggering reconnect'
+                );
                 this.emit('ws_dead', `Silent for ${Math.round(silenceDuration / 1000)}s`);
 
-                // Force page reload to reconnect everything cleanly
-                // (Deriv WS reconnects on page load automatically)
-                // Give 3 second grace before reload to allow user to see toast
-                setTimeout(() => {
-                    if (this.isActive) {
-                        window.location.reload();
-                    }
-                }, 3000);
+                if (WS && typeof WS.send === 'function') {
+                    WS.send({ ping: 1 })
+                        .then(() => {
+                            this.lastPingSuccess = Date.now();
+                        })
+                        .catch(() => {});
+                }
             }
-        }, 15_000); // Check every 15 seconds
+        }, 30_000); // Check every 30 seconds
     }
 
     // ---------------------------------------------------------------
@@ -193,9 +196,7 @@ class SessionGuardService {
     // ---------------------------------------------------------------
     private startAntiThrottle() {
         try {
-            const AudioContextClass =
-                window.AudioContext ||
-                (window as any).webkitAudioContext;
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
             if (!AudioContextClass) return;
 
             this.audioCtx = new AudioContextClass();

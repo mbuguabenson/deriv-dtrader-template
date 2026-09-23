@@ -51,7 +51,9 @@ const App = ({ root_store }) => {
         if (token) {
             storeTokens(token);
             setEmbeddedMode();
-            cleanURL('token');
+            if (typeof window !== 'undefined' && window.self === window.top) {
+                cleanURL('token');
+            }
             return;
         }
 
