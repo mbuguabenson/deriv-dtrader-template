@@ -22,8 +22,12 @@ import TopWidgets from 'Modules/SmartChart/Components/top-widgets';
 import Digits from 'Modules/Contract/Components/Digits';
 import BottomWidgets from 'Modules/SmartChart/Components/bottom-widgets';
 import { useSmartChartsAdapter } from 'Modules/SmartChart/Hooks/useSmartChartsAdapter';
+import clsx from 'clsx';
 import { CHART_CONSTANTS, getMarketsOrder } from 'Modules/SmartChart/Utils/chart-utils';
+import { isDigitTradeType } from 'AppV2/Utils/digits';
 import { useTraderStore } from 'Stores/useTraderStores';
+
+import './trade-chart.scss';
 
 type TickSpotData = NonNullable<TTicksStreamResponse['tick']>;
 
@@ -131,6 +135,12 @@ const TradeChart = observer(() => {
     } = useTraderStore();
     const is_accumulator = isAccumulatorContract(contract_type);
     const timeoutsMapRef = React.useRef<Map<number, NodeJS.Timeout>>(new Map());
+
+    const [mobile_chart_mode, setMobileChartMode] = React.useState<'circles' | 'chart'>('circles');
+
+    React.useEffect(() => {
+        setMobileChartMode('circles');
+    }, [contract_type, symbol]);
     const settings = {
         countdown: is_chart_countdown_visible,
         isHighestLowestMarkerEnabled: false, // TODO: Pending UI,
@@ -263,10 +273,17 @@ const TradeChart = observer(() => {
         );
     }
 
+    const is_digit_trade = show_digits_stats || isDigitTradeType(contract_type);
+
     if (!chartData || !chartData.tradingTimes) return null;
 
     return (
-        <>
+        <div
+            className={clsx('trade-chart__wrapper', {
+                'trade-chart__wrapper--mobile-circles': isMobile && is_digit_trade && mobile_chart_mode === 'circles',
+                'trade-chart__wrapper--mobile-chart': isMobile && is_digit_trade && mobile_chart_mode === 'chart',
+            })}
+        >
             <SmartChart
                 key={show_digits_stats ? symbol : 'trade-chart'}
                 drawingToolFloatingMenuPosition={
@@ -332,7 +349,55 @@ const TradeChart = observer(() => {
                     />
                 )}
             </SmartChart>
-        </>
+            {isMobile && is_digit_trade && (
+                <div className='trade-chart__toolbar-arrows'>
+                    <button
+                        type='button'
+                        className={clsx('trade-chart__toolbar-arrow-btn', {
+                            'trade-chart__toolbar-arrow-btn--active': mobile_chart_mode === 'circles',
+                        })}
+                        onClick={() => setMobileChartMode('circles')}
+                        aria-label='View digit circles'
+                        title='Digit Circles'
+                    >
+                        <svg
+                            width='16'
+                            height='16'
+                            viewBox='0 0 24 24'
+                            fill='none'
+                            stroke='currentColor'
+                            strokeWidth='2.2'
+                            strokeLinecap='round'
+                            strokeLinejoin='round'
+                        >
+                            <polyline points='15 18 9 12 15 6' />
+                        </svg>
+                    </button>
+                    <button
+                        type='button'
+                        className={clsx('trade-chart__toolbar-arrow-btn', {
+                            'trade-chart__toolbar-arrow-btn--active': mobile_chart_mode === 'chart',
+                        })}
+                        onClick={() => setMobileChartMode('chart')}
+                        aria-label='View chart'
+                        title='Chart'
+                    >
+                        <svg
+                            width='16'
+                            height='16'
+                            viewBox='0 0 24 24'
+                            fill='none'
+                            stroke='currentColor'
+                            strokeWidth='2.2'
+                            strokeLinecap='round'
+                            strokeLinejoin='round'
+                        >
+                            <polyline points='9 18 15 12 9 6' />
+                        </svg>
+                    </button>
+                </div>
+            )}
+        </div>
     );
 });
 export default TradeChart;

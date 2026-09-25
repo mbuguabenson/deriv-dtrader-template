@@ -122,17 +122,68 @@ const LastDigitPrediction = ({
                 : String(tick.quote)
             : null;
     const latest_tick_digit = latest_tick_quote_price ? +(latest_tick_quote_price.split('').pop() || '') : null;
-    const position =
-        latest_tick_digit !== null && latest_tick_digit >= 0 && getOffset()[latest_tick_digit]
-            ? getOffset()[latest_tick_digit]
-            : last_contract_digit?.digit !== undefined
-              ? getOffset()[last_contract_digit.digit]
-              : undefined;
+    let position;
+    if (latest_tick_digit !== null && latest_tick_digit >= 0 && getOffset()[latest_tick_digit]) {
+        position = getOffset()[latest_tick_digit];
+    } else if (last_contract_digit?.digit !== undefined) {
+        position = getOffset()[last_contract_digit.digit];
+    }
+
     const latest_digit = !(is_won || is_lost)
         ? { digit: latest_tick_digit, spot: latest_tick_quote_price }
         : last_contract_digit;
+    const digits_ref = React.useRef<HTMLDivElement>(null);
+    const [dynamic_position, setDynamicPosition] = React.useState<{ left: number; top: number } | null>(null);
+
+    let active_digit_index: number | null = null;
+    if (latest_tick_digit !== null && latest_tick_digit >= 0) {
+        active_digit_index = latest_tick_digit;
+    } else if (last_contract_digit?.digit !== undefined) {
+        active_digit_index = last_contract_digit.digit;
+    }
+
+    React.useLayoutEffect(() => {
+        if (!isMobile() || active_digit_index === null || !digits_ref.current) {
+            setDynamicPosition(null);
+            return;
+        }
+        const container = digits_ref.current;
+        const digit_containers = container.querySelectorAll('.digits__container');
+        const target_container = digit_containers[active_digit_index] as HTMLElement;
+        if (target_container) {
+            const circle_el = (target_container.querySelector('.digits__digit') as HTMLElement) || target_container;
+            const circle_rect = circle_el.getBoundingClientRect();
+            const container_rect = container.getBoundingClientRect();
+            const left = circle_rect.left - container_rect.left + circle_rect.width / 2 - 8;
+            const top = circle_rect.bottom - container_rect.top + 2;
+            setDynamicPosition({ left, top });
+        }
+    }, [active_digit_index, tick, digits]);
+
+    React.useEffect(() => {
+        const handleResize = () => {
+            if (!isMobile() || active_digit_index === null || !digits_ref.current) return;
+            const container = digits_ref.current;
+            const digit_containers = container.querySelectorAll('.digits__container');
+            const target_container = digit_containers[active_digit_index] as HTMLElement;
+            if (target_container) {
+                const circle_el = (target_container.querySelector('.digits__digit') as HTMLElement) || target_container;
+                const circle_rect = circle_el.getBoundingClientRect();
+                const container_rect = container.getBoundingClientRect();
+                const left = circle_rect.left - container_rect.left + circle_rect.width / 2 - 8;
+                const top = circle_rect.bottom - container_rect.top + 2;
+                setDynamicPosition({ left, top });
+            }
+        };
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, [active_digit_index]);
+
+    const final_position = isMobile() && dynamic_position ? dynamic_position : position;
+
     return (
         <div
+            ref={digits_ref}
             className={classNames('digits', {
                 'digits--trade': is_trade_page,
             })}
@@ -156,7 +207,12 @@ const LastDigitPrediction = ({
                     selected_digit={isSelectableDigitType() ? selected_digit : undefined}
                 />
             ))}
-            <LastDigitPointer is_lost={is_lost} is_trade_page={is_trade_page} is_won={is_won} position={position} />
+            <LastDigitPointer
+                is_lost={is_lost}
+                is_trade_page={is_trade_page}
+                is_won={is_won}
+                position={final_position}
+            />
         </div>
     );
 };
