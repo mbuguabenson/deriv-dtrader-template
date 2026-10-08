@@ -34,15 +34,18 @@ const useActiveSymbols = () => {
         return (getContractTypesConfig()[contract_type]?.trade_types ?? []) as TContractTypesList;
     };
 
+    const contractTypes = getContractTypesList();
+    const queryPayload: TActiveSymbolsRequest = {
+        active_symbols: 'brief',
+        ...(contractTypes && contractTypes.length > 0 ? { contract_type: contractTypes } : {}),
+    };
+
     const {
         data: response,
         error: queryError,
         isLoading,
     } = useQuery('active_symbols', {
-        payload: {
-            active_symbols: 'brief',
-            contract_type: getContractTypesList(),
-        },
+        payload: queryPayload,
         options: {
             cacheTime: ACTIVE_SYMBOLS_CACHE_CONFIG.CACHE_TIME,
             staleTime: 5 * 60 * 1000,

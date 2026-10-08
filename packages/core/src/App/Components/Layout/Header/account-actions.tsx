@@ -97,6 +97,9 @@ const AccountActionsComponent = observer(() => {
     );
 
     if (!is_logged_in) {
+        if (isEmbeddedMode()) {
+            return null;
+        }
         const signup_url = getSignupUrl();
         return (
             <div

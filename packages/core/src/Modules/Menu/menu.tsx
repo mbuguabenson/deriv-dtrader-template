@@ -24,6 +24,7 @@ import { useDevice } from '@deriv-com/ui';
 
 import { MobileLanguageMenu } from 'App/Components/Layout/Header/Components/ToggleMenu';
 import MenuLink from 'App/Components/Layout/Header/menu-link';
+import { isEmbeddedMode } from 'Services/oauth';
 
 const MenuPage = observer(() => {
     const history = useHistory();
@@ -170,8 +171,8 @@ const MenuPage = observer(() => {
                         )}
                     </div>
 
-                    {/* Sign up — only shown to logged-out users when signup_url is configured */}
-                    {!is_logged_in && !isBridgeAvailable && getSignupUrl() && (
+                    {/* Sign up — only shown to logged-out users when signup_url is configured and not embedded */}
+                    {!is_logged_in && !isBridgeAvailable && !isEmbeddedMode() && getSignupUrl() && (
                         <div
                             className='menu-page__item'
                             onClick={() => window.open(getSignupUrl(), '_blank', 'noopener,noreferrer')}
@@ -184,8 +185,8 @@ const MenuPage = observer(() => {
                         </div>
                     )}
 
-                    {/* Log out */}
-                    {is_logged_in && !isBridgeAvailable && (
+                    {/* Log out — hidden in embedded iframe mode */}
+                    {is_logged_in && !isBridgeAvailable && !isEmbeddedMode() && (
                         <div className='menu-page__item header__menu-logout' onClick={handleLogout}>
                             <MenuLink
                                 icon={

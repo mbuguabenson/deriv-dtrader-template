@@ -125,6 +125,7 @@ export default class ClientStore extends BaseStore {
             resetVirtualBalance: action.bound,
             is_crypto: action.bound,
             switchAccount: action.bound,
+            authenticateConnection: action.bound,
         });
 
         reaction(
@@ -320,10 +321,136 @@ export default class ClientStore extends BaseStore {
         );
     };
 
-    async init(external_id) {
-        // Remove any legacy token parameters from URL
-        this.removeTokenFromUrl();
+    waitForAuthorize(timeoutMs = 8000) {
+        return new Promise(resolve => {
+            if (this.is_authorize) {
+                resolve(true);
+                return;
+            }
+            let timer = null;
+            const disposer = when(
+                () => this.is_authorize,
+                () => {
+                    if (timer) clearTimeout(timer);
+                    resolve(true);
+                }
+            );
+            timer = setTimeout(() => {
+                disposer();
+                resolve(this.is_authorize);
+            }, timeoutMs);
+        });
+    }
 
+    /**
+     * 3-Tier WebSocket Authentication Strategy:
+     * Tier 1: Direct pre-authenticated WebSocket URL (OTP URL from parent or REST)
+     * Tier 2: REST v4 OAuth flow (fetchAccounts + fetchOTP)
+     * Tier 3: Deriv v3 WebSocket with { authorize: token } (legacy token or v4 fallback)
+     * Tier 4: Graceful public fallback WITHOUT destroying tokens or logging out
+     */
+    async authenticateConnection({ token, accountId, wsUrl, accountsList = null }) {
+        let is_authorized = false;
+
+        // Tier 1: Direct pre-authenticated WebSocket URL
+        if (wsUrl) {
+            try {
+                BinarySocket.setWSUrl(wsUrl);
+                BinarySocket.closeAndOpenNewConnection();
+                is_authorized = await this.waitForAuthorize(7000);
+                if (is_authorized) return true;
+            } catch (wsErr) {
+                // eslint-disable-next-line no-console
+                console.warn('[Auth] Direct wsUrl connection failed:', wsErr);
+            }
+        }
+
+        // Tier 2: REST v4 OAuth flow (fetchAccounts + fetchOTP)
+        if (!is_authorized && token) {
+            try {
+                const accounts =
+                    Array.isArray(accountsList) && accountsList.length > 0
+                        ? accountsList
+                        : await fetchAccounts().catch(() => null);
+
+                const active_loginid =
+                    accountId || sessionStorage.getItem('active_loginid') || localStorage.getItem('active_loginid');
+
+                const active_account =
+                    accounts?.find(a => (a.account_id || a.loginid) === active_loginid) ||
+                    accounts?.find(
+                        a =>
+                            a.account_type === 'demo' ||
+                            (a.account_id || a.loginid)?.startsWith('VR') ||
+                            (a.account_id || a.loginid)?.startsWith('DEM')
+                    ) ||
+                    accounts?.[0];
+
+                if (active_account) {
+                    const accId = active_account.account_id || active_account.loginid;
+                    const accType =
+                        active_account.account_type ||
+                        (accId?.startsWith('VR') || accId?.startsWith('DEM') ? 'demo' : 'real');
+
+                    sessionStorage.setItem('active_loginid', accId);
+                    localStorage.setItem('active_loginid', accId);
+                    localStorage.setItem('account_type', accType);
+                    this.setLoginId(accId);
+
+                    const fetched_ws_url = await fetchOTP(accId);
+                    if (fetched_ws_url) {
+                        BinarySocket.setWSUrl(fetched_ws_url);
+                        BinarySocket.closeAndOpenNewConnection();
+                        is_authorized = await this.waitForAuthorize(7000);
+                        if (is_authorized) return true;
+                    }
+                }
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.warn('[Auth] REST v4 OAuth flow not available:', error);
+            }
+        }
+
+        // Tier 3: Deriv v3 WebSocket with { authorize: token }
+        // Crucial for legacy tokens (a1-...), PAT tokens, or when v4 REST is unreachable
+        if (!is_authorized && token) {
+            const candidateToken =
+                (!token.startsWith('ey') ? token : null) ||
+                localStorage.getItem('legacy_dtrader_token') ||
+                localStorage.getItem('token1') ||
+                token;
+
+            if (candidateToken && typeof candidateToken === 'string' && candidateToken.length > 5) {
+                try {
+                    const v3Url = getDerivV3WSUrl();
+                    BinarySocket.setWSUrl(v3Url);
+                    BinarySocket.closeAndOpenNewConnection();
+
+                    const auth_res = await BinarySocket.send({ authorize: candidateToken });
+                    if (auth_res?.authorize?.loginid) {
+                        BinarySocketGeneral.authorizeAccount(auth_res);
+                        is_authorized = await this.waitForAuthorize(5000);
+                        if (is_authorized) return true;
+                    }
+                } catch (v3Err) {
+                    // eslint-disable-next-line no-console
+                    console.warn('[Auth] Deriv v3 WS authorize failed:', v3Err);
+                }
+            }
+        }
+
+        // Tier 4: Graceful fallback to public market data
+        // NOTE: We do NOT clear tokens or log out here! The child remains in embedded mode
+        // ready to accept credentials via bridge postMessage or retry.
+        if (!is_authorized) {
+            BinarySocket.setWSUrl(null);
+            BinarySocket.closeAndOpenNewConnection();
+        }
+
+        return is_authorized;
+    }
+
+    async init(external_id) {
         let search = '';
         try {
             search = SessionStore?.get?.('signup_query_param') || window?.location?.search || '';
@@ -361,6 +488,9 @@ export default class ClientStore extends BaseStore {
             }
         }
 
+        // Remove token parameters from URL after safely reading them
+        this.removeTokenFromUrl();
+
         this.setupBridgeListener();
 
         const token = query_token || getStoredToken();
@@ -371,73 +501,15 @@ export default class ClientStore extends BaseStore {
             sessionStorage.getItem('dtrader_ws_url');
 
         if (token) {
-            // Set is_logging_in to true while we wait for authorization
             this.setIsLoggingIn(true);
-            let is_authorized = false;
-
-            const waitForBalance = () =>
-                Promise.race([
-                    BinarySocket.wait('balance'),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('balance timeout')), 8000)),
-                ]);
-
-            // Strategy 0: Direct pre-authenticated WebSocket URL from parent
-            if (query_ws_url) {
-                try {
-                    BinarySocket.setWSUrl(query_ws_url);
-                    BinarySocket.closeAndOpenNewConnection();
-                    await waitForBalance();
-                    is_authorized = true;
-                } catch (wsErr) {
-                    // eslint-disable-next-line no-console
-                    console.warn('[Auth] query_ws_url direct connection failed:', wsErr);
-                }
-            }
-
-            // Strategy 1: Attempt REST v4 OAuth flow (fetchAccounts + fetchOTP)
-            if (!is_authorized) {
-                try {
-                    const accounts = await fetchAccounts();
-                    // Embedded mode: respect account param or active_loginid
-                    const active_loginid =
-                        requested_account ||
-                        sessionStorage.getItem('active_loginid') ||
-                        localStorage.getItem('active_loginid');
-                    const active_account =
-                        accounts?.find(a => a.account_id === active_loginid) ||
-                        accounts?.find(a => a.account_type === 'demo') ||
-                        accounts?.[0];
-
-                    if (active_account) {
-                        sessionStorage.setItem('active_loginid', active_account.account_id);
-                        localStorage.setItem('active_loginid', active_account.account_id);
-                        localStorage.setItem('account_type', active_account.account_type);
-
-                        const ws_url = await fetchOTP(active_account.account_id);
-                        BinarySocket.setWSUrl(ws_url);
-                        BinarySocket.closeAndOpenNewConnection();
-
-                        // Wait for balance response which serves as authorization.
-                        // socket-general.js processes the balance response and calls authorizeAccount().
-                        await waitForBalance();
-                        is_authorized = true;
-                    }
-                } catch (error) {
-                    // eslint-disable-next-line no-console
-                    console.warn('[Auth] v4 REST flow not available, falling back to public market data:', error);
-                }
-            }
-
-            // Fallback to public market data if authorization did not succeed
-            if (!is_authorized) {
-                BinarySocket.setWSUrl(null);
-                BinarySocket.closeAndOpenNewConnection();
-            }
-
+            await this.authenticateConnection({
+                token,
+                accountId: requested_account,
+                wsUrl: query_ws_url,
+            });
             this.setIsLoggingIn(false);
         } else {
             // Public market data does not require OAuth.
-            // Connect to Deriv's public market-data service and open connection
             BinarySocket.setWSUrl(null);
             BinarySocket.openNewConnection();
         }
@@ -525,20 +597,35 @@ export default class ClientStore extends BaseStore {
         this.is_bridge_listening = true;
 
         window.addEventListener('message', async event => {
-            const data = event.data;
-            if (!data || typeof data !== 'object') return;
+            let data = event.data;
+            if (!data) return;
+            if (typeof data === 'string') {
+                try {
+                    data = JSON.parse(data);
+                } catch {
+                    return;
+                }
+            }
+            if (typeof data !== 'object') return;
 
             const incomingToken =
-                data.token || data.token1 || data.auth?.access_token || data.payload?.token || data.payload?.token1;
+                data.token ||
+                data.token1 ||
+                data.auth?.access_token ||
+                data.auth?.token ||
+                data.payload?.token ||
+                data.payload?.token1;
             const incomingAccount =
                 data.loginid ||
                 data.loginId ||
                 data.acct1 ||
                 data.activeAccountId ||
+                data.auth?.loginid ||
                 data.payload?.loginid ||
                 data.payload?.loginId;
             const incomingWsUrl =
                 data.ws_url || data.otpUrl || data.otp_url || data.payload?.ws_url || data.payload?.otpUrl;
+            const incomingAccounts = data.accounts || data.payload?.accounts;
 
             if (
                 incomingToken &&
@@ -578,71 +665,13 @@ export default class ClientStore extends BaseStore {
                 if (!this.is_logged_in || (incomingAccount && this.loginid !== incomingAccount) || incomingWsUrl) {
                     this._is_authenticating_bridge = true;
                     this.setIsLoggingIn(true);
-                    let authorized = false;
-
-                    const waitForBalance = () =>
-                        Promise.race([
-                            BinarySocket.wait('balance'),
-                            new Promise((_, reject) => setTimeout(() => reject(new Error('balance timeout')), 8000)),
-                        ]);
-
                     try {
-                        // Priority 1: Direct pre-authenticated WebSocket URL from parent
-                        if (incomingWsUrl) {
-                            try {
-                                BinarySocket.setWSUrl(incomingWsUrl);
-                                BinarySocket.closeAndOpenNewConnection();
-                                await waitForBalance();
-                                authorized = true;
-                            } catch (wsErr) {
-                                // eslint-disable-next-line no-console
-                                console.warn('[Bridge] Direct incomingWsUrl connection failed:', wsErr);
-                            }
-                        }
-
-                        // Priority 2: Attempt REST v4 OAuth flow (fetchAccounts + fetchOTP)
-                        if (!authorized) {
-                            try {
-                                const incomingAccounts = data.accounts || data.payload?.accounts;
-                                const accounts =
-                                    Array.isArray(incomingAccounts) && incomingAccounts.length > 0
-                                        ? incomingAccounts
-                                        : await fetchAccounts().catch(() => null);
-
-                                const targetId = incomingAccount || sessionStorage.getItem('active_loginid');
-                                const active_acc =
-                                    accounts?.find(a => (a.account_id || a.loginid) === targetId) || accounts?.[0];
-
-                                if (active_acc) {
-                                    const accId = active_acc.account_id || active_acc.loginid;
-                                    const accType =
-                                        active_acc.account_type || (accId?.startsWith('VR') ? 'demo' : 'real');
-                                    sessionStorage.setItem('active_loginid', accId);
-                                    localStorage.setItem('active_loginid', accId);
-                                    localStorage.setItem('account_type', accType);
-
-                                    try {
-                                        const ws_url = await fetchOTP(accId);
-                                        BinarySocket.setWSUrl(ws_url);
-                                        BinarySocket.closeAndOpenNewConnection();
-                                        await waitForBalance();
-                                        authorized = true;
-                                    } catch (otpErr) {
-                                        // eslint-disable-next-line no-console
-                                        console.warn('[Bridge] fetchOTP failed:', otpErr);
-                                    }
-                                }
-                            } catch (accErr) {
-                                // eslint-disable-next-line no-console
-                                console.warn('[Bridge] Account setup failed:', accErr);
-                            }
-                        }
-
-                        if (!authorized) {
-                            // Fall back to documented public options WS
-                            BinarySocket.setWSUrl(null);
-                            BinarySocket.closeAndOpenNewConnection();
-                        }
+                        await this.authenticateConnection({
+                            token: incomingToken,
+                            accountId: incomingAccount,
+                            wsUrl: incomingWsUrl,
+                            accountsList: incomingAccounts,
+                        });
                     } finally {
                         this._is_authenticating_bridge = false;
                         this.setIsLoggingIn(false);
@@ -811,27 +840,55 @@ export default class ClientStore extends BaseStore {
         localStorage.setItem('account_type', switched_account_type);
 
         // Update the store's loginid immediately so components don't render stale data
-        // while waiting for the balance response to arrive.
         this.setLoginId(account_id);
 
-        // Clear notifications when switching accounts (similar to old implementation)
+        // Clear notifications and markers when switching accounts
         this.root_store.notifications.removeNotifications(true);
         this.root_store.notifications.removeTradeNotifications();
         this.root_store.notifications.removeAllNotificationMessages(true);
-
-        // Clear contract markers to prevent showing previous account's contracts on chart
         this.root_store.contract_trade.clearContracts();
 
-        // Fetch a fresh OTP for the new account — OTP URLs are single-use and
-        // embed the account ID, so reusing the old URL would connect to the wrong account.
+        // Notify parent if embedded
+        if (isEmbeddedMode()) {
+            try {
+                window.parent?.postMessage(
+                    {
+                        type: 'ACCOUNT_SWITCHED',
+                        account_id,
+                        loginid: account_id,
+                        source: 'deriv-dtrader-child',
+                    },
+                    '*'
+                );
+            } catch {
+                // ignore
+            }
+        }
+
+        // Fetch a fresh OTP for the new account
         try {
             const ws_url = await fetchOTP(account_id);
             BinarySocket.setWSUrl(ws_url);
+            BinarySocket.closeAndOpenNewConnection();
+            await this.waitForAuthorize(7000);
         } catch (error) {
             // eslint-disable-next-line no-console
-            console.error('[Auth] Failed to fetch OTP for account switch:', error);
+            console.error('[Auth] Failed to fetch OTP for account switch, attempting v3 fallback:', error);
+            const token = getStoredToken();
+            if (token && !token.startsWith('ey')) {
+                try {
+                    BinarySocket.setWSUrl(getDerivV3WSUrl());
+                    BinarySocket.closeAndOpenNewConnection();
+                    const auth_res = await BinarySocket.send({ authorize: token });
+                    if (auth_res?.authorize?.loginid) {
+                        BinarySocketGeneral.authorizeAccount(auth_res);
+                        await this.waitForAuthorize(5000);
+                    }
+                } catch (v3Err) {
+                    // eslint-disable-next-line no-console
+                    console.error('[Auth] v3 fallback failed for account switch:', v3Err);
+                }
+            }
         }
-
-        BinarySocket.closeAndOpenNewConnection();
     }
 }

@@ -1,6 +1,7 @@
 import { configure } from 'mobx';
 
 import NetworkMonitor from 'Services/network-monitor';
+import { isEmbeddedMode } from 'Services/oauth';
 
 import RootStore from 'Stores';
 
@@ -20,6 +21,7 @@ const setStorageEvents = root_store => {
                 break;
             }
             case 'active_loginid':
+                if (isEmbeddedMode()) break;
                 if (localStorage.getItem('active_loginid') === 'null' || !localStorage.getItem('active_loginid')) {
                     root_store.client.logout();
                 }
@@ -29,6 +31,7 @@ const setStorageEvents = root_store => {
                 break;
             // Cross-tab logout sentinel: logout.js writes this key on logout
             case 'logout_event':
+                if (isEmbeddedMode()) break;
                 if (evt.newValue) {
                     root_store.client.logout();
                 }

@@ -1,5 +1,4 @@
 import { getPropertyValue, getSocketURL, mapErrorMessage } from '@deriv/shared';
-import { localize } from '@deriv-com/translations';
 
 import { clearTokens, generateOAuthURL, isEmbeddedMode } from './oauth';
 import WS from './ws-methods';
@@ -99,19 +98,50 @@ const BinarySocketGeneral = (() => {
                 if (msg_type === 'buy') {
                     return;
                 }
+                if (isEmbeddedMode()) {
+                    // eslint-disable-next-line no-console
+                    console.warn(
+                        '[BinarySocketGeneral] AuthorizationRequired in embedded mode; requesting auth from parent instead of logging out.'
+                    );
+                    try {
+                        window.parent?.postMessage(
+                            {
+                                type: 'REQUEST_AUTH',
+                                reason: 'AuthorizationRequired',
+                                msg_type,
+                                source: 'deriv-dtrader-child',
+                            },
+                            '*'
+                        );
+                    } catch {
+                        // ignore postMessage error
+                    }
+                    return;
+                }
                 client_store.logout();
                 break;
             }
             case 'InvalidToken': {
                 // Do NOT reload — that causes an infinite loop when the token is gone.
-                // In embedded mode, log out silently without redirecting (avoids Firefox blocking home.deriv.com).
-                clearTokens();
+                // In embedded mode, notify parent instead of clearing tokens or redirecting
                 if (isEmbeddedMode()) {
-                    client_store.logout();
                     // eslint-disable-next-line no-console
-                    console.warn('[Auth] Token invalid in embedded mode; logged out without redirecting iframe.');
+                    console.warn('[Auth] Token invalid in embedded mode; notifying parent without logging out.');
+                    try {
+                        window.parent?.postMessage(
+                            {
+                                type: 'INVALID_TOKEN',
+                                error: response.error,
+                                source: 'deriv-dtrader-child',
+                            },
+                            '*'
+                        );
+                    } catch {
+                        // ignore
+                    }
                     break;
                 }
+                clearTokens();
                 generateOAuthURL().then(url => window.location.replace(url));
                 break;
             }

@@ -1,5 +1,5 @@
 const DerivAPIBasic = require('@deriv/deriv-api/dist/DerivAPIBasic');
-const { getAccountType, cloneObject, State, getApiV4BaseUrl } = require('@deriv/shared');
+const { getAccountType, cloneObject, State } = require('@deriv/shared');
 const SocketCache = require('./socket_cache');
 const APIMiddleware = require('./api_middleware');
 
@@ -668,6 +668,7 @@ const BinarySocketBase = (() => {
         setWSUrl,
         getWSUrl,
         getPublicWSUrl,
+        getClient: () => client_store,
     };
 })();
 
@@ -721,14 +722,29 @@ const proxyForAuthorize = obj =>
                 return proxyForAuthorize(target[field]);
             }
             return (...args) => {
-                // Wait for balance response instead of authorize (balance serves as auth confirmation).
-                // In v4 the OTP URL embeds auth — balance confirms the session is live.
-                // Access configured_ws_url via the IIFE-exposed getter rather than direct closure reference.
+                const client = BinarySocketBase.getClient?.();
+                // If client is already authorized or client_store is absent, execute immediately
+                if (!client || client.is_authorize) {
+                    return target[field](...args);
+                }
+                // Wait for balance response if connecting with authenticated OTP WS URL
                 const current_ws_url = BinarySocketBase.getWSUrl?.();
                 if (current_ws_url && current_ws_url !== BinarySocketBase.getPublicWSUrl?.()) {
-                    return BinarySocketBase?.wait('balance')?.then(() => target[field](...args));
+                    if (typeof BinarySocketBase.wait === 'function') {
+                        const waitPromise = BinarySocketBase.wait('balance');
+                        if (waitPromise && typeof waitPromise.then === 'function') {
+                            return Promise.race([
+                                waitPromise,
+                                new Promise(resolve => {
+                                    setTimeout(() => {
+                                        resolve();
+                                    }, 2000);
+                                }),
+                            ]).then(() => target[field](...args));
+                        }
+                    }
                 }
-                // Not authenticated — execute without waiting
+                // Fallback: execute request directly without blocking
                 return target[field](...args);
             };
         },

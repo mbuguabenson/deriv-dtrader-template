@@ -21,8 +21,7 @@ import PurchaseButton from 'AppV2/Components/PurchaseButton';
 import TradeErrorSnackbar from 'AppV2/Components/TradeErrorSnackbar';
 import { TradeParameters } from 'AppV2/Components/TradeParameters';
 import TradeParamsFooter from 'AppV2/Components/TradeParamsFooter';
-// Commented out to use chart's native market selector instead
-// import MarketSelector from 'AppV2/Components/MarketSelector';
+import MarketSelector from 'AppV2/Components/MarketSelector';
 import useContractsFor from 'AppV2/Hooks/useContractsFor';
 import useDefaultSymbol from 'AppV2/Hooks/useDefaultSymbol';
 import useTabletLandscape from 'AppV2/Hooks/useTabletLandscape';
@@ -141,8 +140,7 @@ const TradeDesktop = observer(() => {
                         </div>
                         <AccountHeader />
                     </div>
-                    {/* Commented out to use chart's native market selector instead */}
-                    {/* <MarketSelector /> */}
+                    <MarketSelector />
                     <div className='trade__grid'>
                         <div className='trade__chart-tooltip'>
                             <section

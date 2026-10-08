@@ -9,15 +9,33 @@ const AUTH_INFO_KEY = 'auth_info';
 const getStoredToken = (): string | null => {
     try {
         const info = JSON.parse(sessionStorage.getItem(AUTH_INFO_KEY) ?? 'null');
-        if (!info) return null;
-        if (info.expires_at && Date.now() >= info.expires_at) {
-            sessionStorage.removeItem(AUTH_INFO_KEY);
-            return null;
+        if (info) {
+            if (!info.expires_at || Date.now() < info.expires_at) {
+                if (info.access_token) return info.access_token;
+            } else {
+                sessionStorage.removeItem(AUTH_INFO_KEY);
+            }
         }
-        return info.access_token ?? null;
     } catch {
-        return null;
+        // ignore storage parse error
     }
+
+    try {
+        const directToken =
+            sessionStorage.getItem('access_token') ||
+            sessionStorage.getItem('token') ||
+            localStorage.getItem('active_token') ||
+            localStorage.getItem('token1') ||
+            localStorage.getItem('token') ||
+            localStorage.getItem('oauth_access_token');
+        if (directToken && directToken !== 'null' && directToken !== 'undefined') {
+            return directToken;
+        }
+    } catch {
+        // ignore storage read error
+    }
+
+    return null;
 };
 
 /**

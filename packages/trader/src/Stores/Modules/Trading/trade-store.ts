@@ -800,13 +800,22 @@ export default class TradeStore extends BaseStore {
 
     async loadActiveSymbols(should_set_default_symbol = true, should_show_loading = true) {
         if (this.is_dtrader_v2) {
-            await when(() => this.has_symbols_for_v2);
-            return;
+            const gotSymbols = await Promise.race([
+                when(() => this.has_symbols_for_v2).then(() => true),
+                new Promise(resolve => setTimeout(() => resolve(false), 3000)),
+            ]);
+            if (gotSymbols && this.active_symbols?.length) {
+                return;
+            }
         }
         this.should_show_active_symbols_loading = should_show_loading;
 
         try {
             await this.setActiveSymbols();
+
+            if (this.active_symbols?.length) {
+                this.setActiveSymbolsV2(this.active_symbols);
+            }
 
             const { symbol, showModal } = getTradeURLParams({ active_symbols: this.active_symbols });
             if (showModal && should_show_loading && !this.root_store.client.is_logging_in) {
@@ -822,6 +831,9 @@ export default class TradeStore extends BaseStore {
                 const symbol_to_update = await pickDefaultSymbol(this.active_symbols);
                 await this.processNewValuesAsync({ symbol: symbol_to_update });
             }
+        } catch (err) {
+            // eslint-disable-next-line no-console
+            console.warn('[TradeStore] Error loading active symbols fallback:', err);
         } finally {
             runInAction(() => {
                 this.should_show_active_symbols_loading = false;
@@ -2176,9 +2188,6 @@ export default class TradeStore extends BaseStore {
             });
         }
         if ('active_symbols' in req) {
-            if (this.root_store.client.is_logged_in) {
-                return WS.authorized.activeSymbols('brief');
-            }
             return WS.activeSymbols('brief');
         }
         if ('trading_times' in req) {
