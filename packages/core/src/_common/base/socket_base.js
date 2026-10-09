@@ -18,17 +18,24 @@ const BinarySocketBase = (() => {
     let reconnect_handlers = []; // Array to store multiple reconnection handlers
     let reconnect_attempt_count = 0; // Track number of reconnect attempts
 
-    // v4: WS URL is set by client-store after fetching an OTP from the REST API.
-    // null means unauthenticated — connect directly to the documented public options endpoint.
-    const PUBLIC_OPTIONS_WS_URL = 'wss://api.derivws.com/trading/v1/options/ws/public';
-    const getPublicWSUrl = () => PUBLIC_OPTIONS_WS_URL;
+    // Canonical Deriv v3 WebSocket endpoint for active symbols, ticks, and options trading
+    const getDerivV3WSUrl = () => {
+        const appId = (typeof window !== 'undefined' && localStorage.getItem('config.app_id')) || '121856';
+        return `wss://ws.derivws.com/websockets/v3?app_id=${appId}&l=en&brand=deriv`;
+    };
+    const getPublicWSUrl = () => getDerivV3WSUrl();
     let configured_ws_url = null;
 
     const setWSUrl = url => {
-        configured_ws_url = url;
+        // Filter out incompatible New Options API endpoints if mistakenly passed
+        if (url && url.includes('options/ws')) {
+            configured_ws_url = getDerivV3WSUrl();
+        } else {
+            configured_ws_url = url;
+        }
         // Switching to an authenticated URL — treat the next onOpen as an initial connection
         // so setIsAuthorize(false) is called correctly regardless of prior public socket state.
-        if (url) is_connected_before = false;
+        if (configured_ws_url) is_connected_before = false;
     };
 
     const getWSUrl = () => configured_ws_url;
@@ -43,7 +50,10 @@ const BinarySocketBase = (() => {
         if (is_mock_server) {
             return 'ws://127.0.0.1:42069';
         }
-        return configured_ws_url ?? getPublicWSUrl();
+        if (configured_ws_url && !configured_ws_url.includes('options/ws')) {
+            return configured_ws_url;
+        }
+        return getPublicWSUrl();
     };
 
     const isReady = () => hasReadyState(1);

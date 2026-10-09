@@ -33,13 +33,19 @@ type APIContextData = {
     createNewWSConnection: () => void;
 };
 
-const V4_PUBLIC_WS = 'wss://api.derivws.com/trading/v1/options/ws/public';
+const getCanonicalV3WS = () => {
+    const appId = (typeof window !== 'undefined' && localStorage.getItem('config.app_id')) || '121856';
+    return `wss://ws.derivws.com/websockets/v3?app_id=${appId}&l=en&brand=deriv`;
+};
 
 /**
  * Returns the WebSocket URL.
- * Uses the provided authenticated OTP URL when available; falls back to the v4 public endpoint.
+ * Uses the provided authenticated URL when valid; falls back to the canonical Deriv v3 endpoint.
  */
-const getWebSocketURL = (ws_url?: string) => ws_url ?? V4_PUBLIC_WS;
+const getWebSocketURL = (ws_url?: string) => {
+    if (ws_url && !ws_url.includes('options/ws')) return ws_url;
+    return getCanonicalV3WS();
+};
 
 const APIContext = createContext<APIContextData | null>(null);
 

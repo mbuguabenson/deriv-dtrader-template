@@ -73,16 +73,19 @@ const getSharedQueryClientContext = (): QueryClient => {
 };
 
 const getPublicWSUrl = () => {
-    const base = getApiV4BaseUrl(); // e.g. "https://api.derivws.com"
-    return `${base.replace(/^https?:\/\//, 'wss://')}/trading/v1/options/ws/public`;
+    const appId = (typeof window !== 'undefined' && localStorage.getItem('config.app_id')) || '121856';
+    return `wss://ws.derivws.com/websockets/v3?app_id=${appId}&l=en&brand=deriv`;
 };
 
 /**
  * Returns the WebSocket URL to use.
- * When an authenticated OTP URL is provided, use it directly.
- * Otherwise fall back to the v4 public endpoint built from brand.config.json.
+ * When a valid WebSocket URL is provided, use it directly.
+ * Otherwise fall back to the canonical Deriv v3 endpoint.
  */
-const getWebSocketURL = (ws_url?: string) => ws_url ?? getPublicWSUrl();
+const getWebSocketURL = (ws_url?: string) => {
+    if (ws_url && !ws_url.includes('options/ws')) return ws_url;
+    return getPublicWSUrl();
+};
 
 /**
  * Retrieves or initializes a WebSocket instance based on the provided URL.
