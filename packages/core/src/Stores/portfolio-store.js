@@ -54,6 +54,7 @@ export default class PortfolioStore extends BaseStore {
 
     responseQueue = [];
     isUpdatingPositions = false; // Mutex to prevent concurrent updates
+    poc_subscribers_map = {};
 
     active_positions = [];
 
@@ -153,6 +154,14 @@ export default class PortfolioStore extends BaseStore {
         this.positions_map = {};
         this.is_loading = false;
         this.error = '';
+        if (this.poc_subscribers_map) {
+            Object.values(this.poc_subscribers_map).forEach(sub => {
+                if (typeof sub?.unsubscribe === 'function') {
+                    sub.unsubscribe();
+                }
+            });
+            this.poc_subscribers_map = {};
+        }
         this.updatePositions();
         if (this.has_subscribed_to_poc_and_transaction) {
             WS.forgetAll('proposal_open_contract', 'transaction');
@@ -179,18 +188,57 @@ export default class PortfolioStore extends BaseStore {
 
             this.positions.forEach(p => {
                 this.positions_map[p.id] = p;
+                if (p.id && WS && typeof WS.subscribeProposalOpenContract === 'function') {
+                    if (!this.poc_subscribers_map) this.poc_subscribers_map = {};
+                    if (!this.poc_subscribers_map[p.id]) {
+                        this.poc_subscribers_map[p.id] = WS.subscribeProposalOpenContract(
+                            p.id,
+                            this.proposalOpenContractQueueHandler
+                        );
+                    }
+                }
             });
             this.updatePositions();
         }
     }
 
-    onBuyResponse({ contract_id, longcode, contract_type }) {
+    onBuyResponse({
+        contract_id,
+        longcode,
+        contract_type,
+        shortcode,
+        underlying_symbol,
+        underlying,
+        buy_price,
+        payout,
+        transaction_id,
+        start_time,
+    }) {
+        const effective_symbol = underlying_symbol || underlying;
         const new_pos = {
             contract_id,
             longcode,
             contract_type,
+            shortcode,
+            underlying_symbol: effective_symbol,
+            underlying: effective_symbol,
+            buy_price,
+            payout,
+            transaction_id,
+            date_start: start_time,
         };
         this.pushNewPosition(new_pos);
+
+        // Explicitly subscribe to proposal_open_contract for this specific purchased contract
+        if (contract_id && WS && typeof WS.subscribeProposalOpenContract === 'function') {
+            if (!this.poc_subscribers_map) this.poc_subscribers_map = {};
+            if (!this.poc_subscribers_map[contract_id]) {
+                this.poc_subscribers_map[contract_id] = WS.subscribeProposalOpenContract(
+                    contract_id,
+                    this.proposalOpenContractQueueHandler
+                );
+            }
+        }
     }
 
     async transactionHandler(response) {
@@ -272,9 +320,15 @@ export default class PortfolioStore extends BaseStore {
         }
 
         const proposal = response.proposal_open_contract;
-        const portfolio_position = this.positions_map[proposal.contract_id];
+        if (!proposal || !proposal.contract_id) return;
 
-        if (!portfolio_position) return;
+        let portfolio_position = this.positions_map[proposal.contract_id];
+
+        if (!portfolio_position) {
+            this.pushNewPosition(proposal);
+            portfolio_position = this.positions_map[proposal.contract_id];
+            if (!portfolio_position) return;
+        }
         this.updateContractTradeStore(response);
         this.updateContractReplayStore(response);
 
@@ -327,6 +381,13 @@ export default class PortfolioStore extends BaseStore {
 
         if (portfolio_position.contract_info.is_sold === 1) {
             this.populateResultDetails(response);
+            if (this.poc_subscribers_map && this.poc_subscribers_map[proposal.contract_id]) {
+                const sub = this.poc_subscribers_map[proposal.contract_id];
+                if (typeof sub?.unsubscribe === 'function') {
+                    sub.unsubscribe();
+                }
+                delete this.poc_subscribers_map[proposal.contract_id];
+            }
         }
     }
 
@@ -524,7 +585,11 @@ export default class PortfolioStore extends BaseStore {
     pushNewPosition(new_pos) {
         const position = formatPortfolioPosition(new_pos);
 
-        if (this.positions_map[position.id]) return;
+        if (this.positions_map[position.id]) {
+            Object.assign(this.positions_map[position.id], position);
+            this.updatePositions();
+            return;
+        }
 
         this.positions.unshift(position);
         this.positions_map[position.id] = position;
@@ -534,8 +599,17 @@ export default class PortfolioStore extends BaseStore {
     removePositionById(contract_id) {
         const contract_idx = this.getPositionIndexById(contract_id);
 
-        this.positions.splice(contract_idx, 1);
+        if (contract_idx > -1) {
+            this.positions.splice(contract_idx, 1);
+        }
         delete this.positions_map[contract_id];
+        if (this.poc_subscribers_map && this.poc_subscribers_map[contract_id]) {
+            const sub = this.poc_subscribers_map[contract_id];
+            if (typeof sub?.unsubscribe === 'function') {
+                sub.unsubscribe();
+            }
+            delete this.poc_subscribers_map[contract_id];
+        }
         this.updatePositions();
         this.root_store.contract_trade.removeContract({ contract_id });
     }

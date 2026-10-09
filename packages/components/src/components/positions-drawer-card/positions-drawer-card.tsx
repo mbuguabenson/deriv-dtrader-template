@@ -156,7 +156,11 @@ const PositionsDrawerCard = ({
         </React.Fragment>
     );
     const effective_underlying =
-        contract_info?.underlying_symbol || getUnderlyingFromShortcode(contract_info?.shortcode);
+        contract_info?.underlying_symbol ||
+        getUnderlyingFromShortcode(contract_info?.shortcode) ||
+        (contract_info as any)?.underlying ||
+        (contract_info as any)?.symbol ||
+        display_name;
 
     const contract_card_body = is_link_disabled ? (
         <div className={contract_card_classname}>{effective_underlying ? contract_el : loader_el}</div>

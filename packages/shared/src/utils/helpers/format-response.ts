@@ -23,8 +23,11 @@ export const filterDisabledPositions = (
 
 export const formatPortfolioPosition = (portfolio_pos: TContractInfo, indicative?: number) => {
     const purchase = portfolio_pos.buy_price;
-    const payout = portfolio_pos.payout;
-    const display_name = getSymbolDisplayName(getMarketInformation(portfolio_pos.shortcode || '').underlying);
+    const underlying =
+        portfolio_pos.underlying_symbol ||
+        portfolio_pos.underlying ||
+        getMarketInformation(portfolio_pos.shortcode || '').underlying;
+    const display_name = underlying ? getSymbolDisplayName(underlying) : '';
     const transaction_id =
         portfolio_pos.transaction_id || (portfolio_pos.transaction_ids && portfolio_pos.transaction_ids.buy);
 

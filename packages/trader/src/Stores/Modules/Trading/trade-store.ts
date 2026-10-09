@@ -1260,11 +1260,13 @@ export default class TradeStore extends BaseStore {
                                 (window as any).hj('event', event_string);
                             }
 
+                            const effective_symbol = underlying_symbol || this.symbol;
                             this.root_store.contract_trade.addContract({
                                 contract_id,
                                 start_time,
                                 longcode,
-                                underlying_symbol,
+                                underlying_symbol: effective_symbol,
+                                underlying: effective_symbol,
                                 barrier: is_digit_contract ? last_digit : null,
                                 contract_type,
                                 is_tick_contract,
@@ -1273,6 +1275,13 @@ export default class TradeStore extends BaseStore {
                                 contract_id,
                                 longcode,
                                 contract_type,
+                                shortcode,
+                                underlying_symbol: effective_symbol,
+                                underlying: effective_symbol,
+                                buy_price: response.buy.buy_price,
+                                payout: response.buy.payout,
+                                transaction_id: response.buy.transaction_id,
+                                start_time: response.buy.start_time,
                             });
                             // NOTE: changing chart granularity and chart_type has to be done in a different render cycle
                             // so we have to set chart granularity to zero, and change the chart_type to 'mountain' first,
