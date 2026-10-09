@@ -26,7 +26,7 @@ export const formatPortfolioPosition = (portfolio_pos: TContractInfo, indicative
     const payout = portfolio_pos.payout;
     const underlying =
         portfolio_pos.underlying_symbol ||
-        portfolio_pos.underlying ||
+        (portfolio_pos as TContractInfo & { underlying?: string }).underlying ||
         getMarketInformation(portfolio_pos.shortcode || '').underlying;
     const display_name = underlying ? getSymbolDisplayName(underlying) : '';
     const transaction_id =
