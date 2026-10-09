@@ -53,13 +53,22 @@ const BinarySocketBase = (() => {
     const blockRequest = value => deriv_api?.blockRequest(value);
 
     const close = () => {
-        if (binary_socket) binary_socket.close();
+        if (binary_socket) {
+            try {
+                if (is_switching_socket) {
+                    binary_socket.onerror = null;
+                }
+                binary_socket.close();
+            } catch (error) {
+                // Ignore intentional close errors when switching sockets
+            }
+        }
     };
 
     const closeAndOpenNewConnection = () => {
+        is_switching_socket = true;
         if (binary_socket) {
             close();
-            is_switching_socket = true;
         }
         openNewConnection();
     };
@@ -98,12 +107,14 @@ const BinarySocketBase = (() => {
 
         if (!is_switching_socket && typeof config.wsEvent === 'function') config.wsEvent('init');
 
-        if (isClose()) {
+        if (isClose() || is_switching_socket) {
             is_disconnect_called = false;
             binary_socket = new WebSocket(getSocketUrl(session_id));
 
             // Add error event listener for connection failures
             binary_socket.addEventListener('error', error_event => {
+                if (is_switching_socket) return;
+
                 // eslint-disable-next-line no-console
                 console.error('WebSocket error:', error_event);
 
@@ -138,6 +149,10 @@ const BinarySocketBase = (() => {
 
         deriv_api.onOpen().subscribe(() => {
             if (typeof config.wsEvent === 'function') config.wsEvent('open');
+
+            if (is_switching_socket) {
+                is_switching_socket = false;
+            }
 
             // Reset reconnect attempt counter on successful connection
             reconnect_attempt_count = 0;

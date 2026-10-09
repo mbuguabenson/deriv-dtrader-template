@@ -352,11 +352,34 @@ export default class ClientStore extends BaseStore {
     async authenticateConnection({ token, accountId, wsUrl, accountsList = null }) {
         let is_authorized = false;
 
-        // Tier 1: Direct pre-authenticated WebSocket URL
+        // Tier 1: Direct pre-authenticated WebSocket URL or configured v3 URL
         if (wsUrl) {
             try {
                 BinarySocket.setWSUrl(wsUrl);
                 BinarySocket.closeAndOpenNewConnection();
+
+                const isV3Endpoint = wsUrl.includes('ws.derivws.com') || wsUrl.includes('websockets/v3');
+                if (isV3Endpoint && token) {
+                    const candidateToken =
+                        (!token.startsWith('ey') ? token : null) ||
+                        localStorage.getItem('legacy_dtrader_token') ||
+                        localStorage.getItem('token1') ||
+                        token;
+                    if (candidateToken && typeof candidateToken === 'string' && candidateToken.length > 5) {
+                        try {
+                            const auth_res = await BinarySocket.send({ authorize: candidateToken });
+                            if (auth_res?.authorize?.loginid) {
+                                BinarySocketGeneral.authorizeAccount(auth_res);
+                                is_authorized = await this.waitForAuthorize(5000);
+                                if (is_authorized) return true;
+                            }
+                        } catch (authErr) {
+                            // eslint-disable-next-line no-console
+                            console.warn('[Auth] Tier 1 v3 authorize error:', authErr);
+                        }
+                    }
+                }
+
                 is_authorized = await this.waitForAuthorize(7000);
                 if (is_authorized) return true;
             } catch (wsErr) {

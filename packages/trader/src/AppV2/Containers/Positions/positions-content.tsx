@@ -61,7 +61,13 @@ const PositionsContent = observer(({ hasButtonsDemo, isClosedTab, setHasButtonsD
     const hasNoPositions = hasNoActiveFilters && (isClosedTab ? is_empty : is_active_empty);
     const shouldShowEmptyMessage = hasNoPositions || noMatchesFound;
     const shouldShowContractCards =
-        !!filteredPositions.length && (isClosedTab || (filteredPositions[0]?.contract_info as TContractInfo)?.status);
+        !!filteredPositions.length &&
+        (isClosedTab ||
+            Boolean(
+                (filteredPositions[0]?.contract_info as TContractInfo)?.status ||
+                (filteredPositions[0]?.contract_info as TContractInfo)?.contract_id ||
+                (filteredPositions[0] as TPortfolioPosition)?.id
+            ));
     const shouldShowLoading = isClosedTab
         ? isFetchingClosedPositions && !filteredPositions.length
         : is_loading || is_switching_account;

@@ -217,6 +217,7 @@ export default class PortfolioStore extends BaseStore {
         const effective_symbol = underlying_symbol || underlying;
         const new_pos = {
             contract_id,
+            id: contract_id,
             longcode,
             contract_type,
             shortcode,
@@ -226,6 +227,10 @@ export default class PortfolioStore extends BaseStore {
             payout,
             transaction_id,
             date_start: start_time,
+            status: 'open',
+            is_valid_to_sell: 1,
+            indicative: Number(buy_price) || 0,
+            profit_loss: 0,
         };
         this.pushNewPosition(new_pos);
 
