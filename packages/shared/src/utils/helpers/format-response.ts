@@ -23,6 +23,7 @@ export const filterDisabledPositions = (
 
 export const formatPortfolioPosition = (portfolio_pos: TContractInfo, indicative?: number) => {
     const purchase = portfolio_pos.buy_price;
+    const payout = portfolio_pos.payout;
     const underlying =
         portfolio_pos.underlying_symbol ||
         portfolio_pos.underlying ||
