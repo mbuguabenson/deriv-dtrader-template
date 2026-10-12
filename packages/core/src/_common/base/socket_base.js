@@ -79,7 +79,11 @@ const BinarySocketBase = (() => {
         }
         if (typeof window !== 'undefined') {
             const searchParams = new URLSearchParams(window.location.search);
-            const queryWs = searchParams.get('ws_url') || searchParams.get('otp_url') || searchParams.get('otpUrl') || sessionStorage.getItem('dtrader_ws_url');
+            const queryWs =
+                searchParams.get('ws_url') ||
+                searchParams.get('otp_url') ||
+                searchParams.get('otpUrl') ||
+                sessionStorage.getItem('dtrader_ws_url');
             if (queryWs && !queryWs.includes('options/ws')) {
                 return queryWs;
             }
