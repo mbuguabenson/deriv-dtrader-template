@@ -1,5 +1,5 @@
 const DerivAPIBasic = require('@deriv/deriv-api/dist/DerivAPIBasic');
-const { getAccountType, cloneObject, State } = require('@deriv/shared');
+const { getAccountType, cloneObject, State, getAppId } = require('@deriv/shared');
 const SocketCache = require('./socket_cache');
 const APIMiddleware = require('./api_middleware');
 
@@ -20,8 +20,32 @@ const BinarySocketBase = (() => {
 
     // Canonical Deriv v3 WebSocket endpoint for active symbols, ticks, and options trading
     const getDerivV3WSUrl = () => {
-        const appId = (typeof window !== 'undefined' && localStorage.getItem('config.app_id')) || '121856';
-        return `wss://ws.derivws.com/websockets/v3?app_id=${appId}&l=en&brand=deriv`;
+        let appId = null;
+        if (typeof window !== 'undefined') {
+            const searchParams = new URLSearchParams(window.location.search);
+            appId = searchParams.get('app_id') || searchParams.get('appId') || localStorage.getItem('config.app_id');
+        }
+        if (!appId) {
+            try {
+                appId = getAppId?.() || 16929;
+            } catch (e) {
+                appId = 16929;
+            }
+        }
+        // Deriv restricts App ID 121856 by origin; if not on hazelhub, use standard template App ID
+        if (String(appId) === '121856') {
+            const isHazelhub = typeof window !== 'undefined' && window.location.hostname.includes('hazelhub');
+            if (!isHazelhub) {
+                try {
+                    appId = getAppId?.() || 16929;
+                } catch (e) {
+                    appId = 16929;
+                }
+            }
+        }
+        if (!appId) appId = 16929;
+        const server = (typeof window !== 'undefined' && localStorage.getItem('config.server_url')) || 'ws.derivws.com';
+        return `wss://${server}/websockets/v3?app_id=${appId}&l=en&brand=deriv`;
     };
     const getPublicWSUrl = () => getDerivV3WSUrl();
     let configured_ws_url = null;
@@ -52,6 +76,13 @@ const BinarySocketBase = (() => {
         }
         if (configured_ws_url && !configured_ws_url.includes('options/ws')) {
             return configured_ws_url;
+        }
+        if (typeof window !== 'undefined') {
+            const searchParams = new URLSearchParams(window.location.search);
+            const queryWs = searchParams.get('ws_url') || searchParams.get('otp_url') || searchParams.get('otpUrl') || sessionStorage.getItem('dtrader_ws_url');
+            if (queryWs && !queryWs.includes('options/ws')) {
+                return queryWs;
+            }
         }
         return getPublicWSUrl();
     };

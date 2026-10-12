@@ -533,7 +533,7 @@ export default class ClientStore extends BaseStore {
             this.setIsLoggingIn(false);
         } else {
             // Public market data does not require OAuth.
-            BinarySocket.setWSUrl(null);
+            BinarySocket.setWSUrl(query_ws_url || null);
             BinarySocket.openNewConnection();
         }
 

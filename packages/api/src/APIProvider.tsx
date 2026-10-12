@@ -2,7 +2,7 @@ import React, { createContext, PropsWithChildren, useCallback, useContext, useEf
 
 // @ts-expect-error `@deriv/deriv-api` is not in TypeScript, Hence we ignore the TS error.
 import DerivAPIBasic from '@deriv/deriv-api/dist/DerivAPIBasic';
-import { getAccountType, getApiV4BaseUrl, useWS } from '@deriv/shared';
+import { getAccountType, getApiV4BaseUrl, useWS, getAppId } from '@deriv/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import {
@@ -73,8 +73,31 @@ const getSharedQueryClientContext = (): QueryClient => {
 };
 
 const getPublicWSUrl = () => {
-    const appId = (typeof window !== 'undefined' && localStorage.getItem('config.app_id')) || '121856';
-    return `wss://ws.derivws.com/websockets/v3?app_id=${appId}&l=en&brand=deriv`;
+    let appId: string | number | null = null;
+    if (typeof window !== 'undefined') {
+        const searchParams = new URLSearchParams(window.location.search);
+        appId = searchParams.get('app_id') || searchParams.get('appId') || localStorage.getItem('config.app_id');
+    }
+    if (!appId) {
+        try {
+            appId = getAppId?.() || 16929;
+        } catch (e) {
+            appId = 16929;
+        }
+    }
+    if (String(appId) === '121856') {
+        const isHazelhub = typeof window !== 'undefined' && window.location.hostname.includes('hazelhub');
+        if (!isHazelhub) {
+            try {
+                appId = getAppId?.() || 16929;
+            } catch (e) {
+                appId = 16929;
+            }
+        }
+    }
+    if (!appId) appId = 16929;
+    const server = (typeof window !== 'undefined' && localStorage.getItem('config.server_url')) || 'ws.derivws.com';
+    return `wss://${server}/websockets/v3?app_id=${appId}&l=en&brand=deriv`;
 };
 
 /**
