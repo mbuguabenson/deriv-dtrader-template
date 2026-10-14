@@ -1,5 +1,5 @@
 const DerivAPIBasic = require('@deriv/deriv-api/dist/DerivAPIBasic');
-const { getAccountType, cloneObject, State, getAppId } = require('@deriv/shared');
+const { getAccountType, cloneObject, State, getAppId, getApiV4BaseUrl } = require('@deriv/shared');
 const SocketCache = require('./socket_cache');
 const APIMiddleware = require('./api_middleware');
 
@@ -18,7 +18,7 @@ const BinarySocketBase = (() => {
     let reconnect_handlers = []; // Array to store multiple reconnection handlers
     let reconnect_attempt_count = 0; // Track number of reconnect attempts
 
-    // Canonical Deriv v3 WebSocket endpoint for active symbols, ticks, and options trading
+    // Canonical Deriv WebSocket endpoint
     const getDerivV3WSUrl = () => {
         let appId = null;
         if (typeof window !== 'undefined') {
@@ -32,31 +32,29 @@ const BinarySocketBase = (() => {
                 appId = 16929;
             }
         }
-        // Deriv restricts App ID 121856 by origin; if not on hazelhub, use standard template App ID
-        if (String(appId) === '121856') {
-            const isHazelhub = typeof window !== 'undefined' && window.location.hostname.includes('hazelhub');
-            if (!isHazelhub) {
-                try {
-                    appId = getAppId?.() || 16929;
-                } catch (e) {
-                    appId = 16929;
-                }
-            }
-        }
         if (!appId) appId = 16929;
         const server = (typeof window !== 'undefined' && localStorage.getItem('config.server_url')) || 'ws.derivws.com';
         return `wss://${server}/websockets/v3?app_id=${appId}&l=en&brand=deriv`;
     };
-    const getPublicWSUrl = () => getDerivV3WSUrl();
+
+    const getPublicWSUrl = () => {
+        const custom_server = typeof window !== 'undefined' && localStorage.getItem('config.server_url');
+        if (custom_server) {
+            return getDerivV3WSUrl();
+        }
+        let base = 'https://api.derivws.com';
+        try {
+            base = getApiV4BaseUrl?.() || 'https://api.derivws.com';
+        } catch (e) {
+            base = 'https://api.derivws.com';
+        }
+        return `${base.replace(/^https?:\/\//, 'wss://')}/trading/v1/options/ws/public`;
+    };
+
     let configured_ws_url = null;
 
     const setWSUrl = url => {
-        // Filter out incompatible New Options API endpoints if mistakenly passed
-        if (url && url.includes('options/ws')) {
-            configured_ws_url = getDerivV3WSUrl();
-        } else {
-            configured_ws_url = url;
-        }
+        configured_ws_url = url;
         // Switching to an authenticated URL — treat the next onOpen as an initial connection
         // so setIsAuthorize(false) is called correctly regardless of prior public socket state.
         if (configured_ws_url) is_connected_before = false;
@@ -74,7 +72,7 @@ const BinarySocketBase = (() => {
         if (is_mock_server) {
             return 'ws://127.0.0.1:42069';
         }
-        if (configured_ws_url && !configured_ws_url.includes('options/ws')) {
+        if (configured_ws_url) {
             return configured_ws_url;
         }
         if (typeof window !== 'undefined') {
@@ -84,7 +82,7 @@ const BinarySocketBase = (() => {
                 searchParams.get('otp_url') ||
                 searchParams.get('otpUrl') ||
                 sessionStorage.getItem('dtrader_ws_url');
-            if (queryWs && !queryWs.includes('options/ws')) {
+            if (queryWs) {
                 return queryWs;
             }
         }

@@ -1,6 +1,6 @@
 import React, { createContext, PropsWithChildren, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
-import { getSocketURL, getAppId } from '@deriv/shared';
+import { getSocketURL, getAppId, getApiV4BaseUrl } from '@deriv/shared';
 import { getInitialLanguage } from '@deriv-com/translations';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -34,39 +34,37 @@ type APIContextData = {
 };
 
 const getCanonicalV3WS = () => {
-    let appId: string | number | null = null;
-    if (typeof window !== 'undefined') {
-        const searchParams = new URLSearchParams(window.location.search);
-        appId = searchParams.get('app_id') || searchParams.get('appId') || localStorage.getItem('config.app_id');
-    }
-    if (!appId) {
-        try {
-            appId = getAppId?.() || 16929;
-        } catch (e) {
-            appId = 16929;
+    const custom_server = typeof window !== 'undefined' && localStorage.getItem('config.server_url');
+    if (custom_server) {
+        let appId: string | number | null = null;
+        if (typeof window !== 'undefined') {
+            const searchParams = new URLSearchParams(window.location.search);
+            appId = searchParams.get('app_id') || searchParams.get('appId') || localStorage.getItem('config.app_id');
         }
-    }
-    if (String(appId) === '121856') {
-        const isHazelhub = typeof window !== 'undefined' && window.location.hostname.includes('hazelhub');
-        if (!isHazelhub) {
+        if (!appId) {
             try {
                 appId = getAppId?.() || 16929;
             } catch (e) {
                 appId = 16929;
             }
         }
+        return `wss://${custom_server}/websockets/v3?app_id=${appId}&l=en&brand=deriv`;
     }
-    if (!appId) appId = 16929;
-    const server = (typeof window !== 'undefined' && localStorage.getItem('config.server_url')) || 'ws.derivws.com';
-    return `wss://${server}/websockets/v3?app_id=${appId}&l=en&brand=deriv`;
+    let base = 'https://api.derivws.com';
+    try {
+        base = getApiV4BaseUrl?.() || 'https://api.derivws.com';
+    } catch (e) {
+        base = 'https://api.derivws.com';
+    }
+    return `${base.replace(/^https?:\/\//, 'wss://')}/trading/v1/options/ws/public`;
 };
 
 /**
  * Returns the WebSocket URL.
- * Uses the provided authenticated URL when valid; falls back to the canonical Deriv v3 endpoint.
+ * Uses the provided authenticated URL when valid; falls back to the public options endpoint.
  */
 const getWebSocketURL = (ws_url?: string) => {
-    if (ws_url && !ws_url.includes('options/ws')) return ws_url;
+    if (ws_url) return ws_url;
     return getCanonicalV3WS();
 };
 

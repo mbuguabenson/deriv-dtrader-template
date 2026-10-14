@@ -118,6 +118,8 @@
     },
     "scripts": {
         "serve": "npm run serve --workspace=@deriv/core",
+        "start": "npm run serve",
+        "dev": "npm run serve",
         "bootstrap": "npm ci --strict-peer-deps --verbose",
         "bootstrap:ci": "npm ci --strict-peer-deps --verbose",
         "bootstrap:dev": "npm install --strict-peer-deps --verbose",

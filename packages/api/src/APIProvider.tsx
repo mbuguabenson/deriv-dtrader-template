@@ -73,40 +73,38 @@ const getSharedQueryClientContext = (): QueryClient => {
 };
 
 const getPublicWSUrl = () => {
-    let appId: string | number | null = null;
-    if (typeof window !== 'undefined') {
-        const searchParams = new URLSearchParams(window.location.search);
-        appId = searchParams.get('app_id') || searchParams.get('appId') || localStorage.getItem('config.app_id');
-    }
-    if (!appId) {
-        try {
-            appId = getAppId?.() || 16929;
-        } catch (e) {
-            appId = 16929;
+    const custom_server = typeof window !== 'undefined' && localStorage.getItem('config.server_url');
+    if (custom_server) {
+        let appId: string | number | null = null;
+        if (typeof window !== 'undefined') {
+            const searchParams = new URLSearchParams(window.location.search);
+            appId = searchParams.get('app_id') || searchParams.get('appId') || localStorage.getItem('config.app_id');
         }
-    }
-    if (String(appId) === '121856') {
-        const isHazelhub = typeof window !== 'undefined' && window.location.hostname.includes('hazelhub');
-        if (!isHazelhub) {
+        if (!appId) {
             try {
                 appId = getAppId?.() || 16929;
             } catch (e) {
                 appId = 16929;
             }
         }
+        return `wss://${custom_server}/websockets/v3?app_id=${appId}&l=en&brand=deriv`;
     }
-    if (!appId) appId = 16929;
-    const server = (typeof window !== 'undefined' && localStorage.getItem('config.server_url')) || 'ws.derivws.com';
-    return `wss://${server}/websockets/v3?app_id=${appId}&l=en&brand=deriv`;
+    let base = 'https://api.derivws.com';
+    try {
+        base = getApiV4BaseUrl?.() || 'https://api.derivws.com';
+    } catch (e) {
+        base = 'https://api.derivws.com';
+    }
+    return `${base.replace(/^https?:\/\//, 'wss://')}/trading/v1/options/ws/public`;
 };
 
 /**
  * Returns the WebSocket URL to use.
  * When a valid WebSocket URL is provided, use it directly.
- * Otherwise fall back to the canonical Deriv v3 endpoint.
+ * Otherwise fall back to the public options endpoint.
  */
 const getWebSocketURL = (ws_url?: string) => {
-    if (ws_url && !ws_url.includes('options/ws')) return ws_url;
+    if (ws_url) return ws_url;
     return getPublicWSUrl();
 };
 
@@ -180,44 +178,69 @@ const getEnvironment = () => {
 };
 
 type TAPIProviderProps = {
-    /** If set to true, the APIProvider will instantiate its own socket connection. */
+    /** If set to true, the APIProvider will instantiate its own socket connection. Defaults to true to ensure queries work out of the box. */
     standalone?: boolean;
     /** Authenticated OTP WebSocket URL from the v4 REST API. Falls back to public endpoint when omitted. */
     ws_url?: string;
 };
 
-const APIProvider = ({ children, standalone = false, ws_url }: PropsWithChildren<TAPIProviderProps>) => {
+const APIProvider = ({ children, standalone = true, ws_url }: PropsWithChildren<TAPIProviderProps>) => {
     const WS = useWS();
     const [reconnect, setReconnect] = useState(false);
     const [environment, setEnvironment] = useState(getEnvironment());
-    const standaloneDerivAPI = useRef(standalone ? initializeDerivAPI(() => setReconnect(true), ws_url) : null);
-    const subscriptions = useRef<Record<string, DerivAPIBasic['subscribe']>>();
+    const standaloneDerivAPI = useRef<DerivAPIBasic | null>(null);
+    const subscriptions = useRef<Record<string, DerivAPIBasic['subscribe']>>({});
 
-    const send: TSendFunction = (name, payload) => {
-        return standaloneDerivAPI.current?.send({ [name]: 1, ...payload });
-    };
+    const getApiInstance = useCallback((): DerivAPIBasic | null => {
+        if (!standaloneDerivAPI.current || standaloneDerivAPI.current.isConnectionClosed()) {
+            standaloneDerivAPI.current = initializeDerivAPI(() => setReconnect(true), ws_url);
+        }
+        return standaloneDerivAPI.current;
+    }, [ws_url]);
 
-    const subscribe: TSubscribeFunction = async (name, payload) => {
-        const id = await hashObject({ name, payload });
-        const matchingSubscription = subscriptions.current?.[id];
-        if (matchingSubscription) return { id, subscription: matchingSubscription };
+    // Initialize immediately so queries on mount don't hit null
+    if (!standaloneDerivAPI.current) {
+        standaloneDerivAPI.current = initializeDerivAPI(() => setReconnect(true), ws_url);
+    }
 
-        const { payload: _payload } = payload ?? {};
+    const send: TSendFunction = useCallback(
+        (name, payload) => {
+            const api = getApiInstance() || (WS && typeof WS.send === 'function' ? WS : null);
+            if (api && typeof api.send === 'function') {
+                return api.send({ [name]: 1, ...payload });
+            }
+            return Promise.reject(new Error(`API instance is unavailable to send ${String(name)} request`));
+        },
+        [getApiInstance, WS]
+    );
 
-        const subscription = standaloneDerivAPI.current?.subscribe({
-            [name]: 1,
-            subscribe: 1,
-            ...(_payload ?? {}),
-        });
+    const subscribe: TSubscribeFunction = useCallback(
+        async (name, payload) => {
+            const id = await hashObject({ name, payload });
+            const matchingSubscription = subscriptions.current?.[id];
+            if (matchingSubscription) return { id, subscription: matchingSubscription };
 
-        subscriptions.current = { ...(subscriptions.current ?? {}), ...{ [id]: subscription } };
-        return { id, subscription };
-    };
+            const { payload: _payload } = payload ?? {};
+            const api = getApiInstance() || WS?.get?.() || WS;
 
-    const unsubscribe: TUnsubscribeFunction = id => {
+            const subscription = api?.subscribe?.({
+                [name]: 1,
+                subscribe: 1,
+                ...(_payload ?? {}),
+            });
+
+            if (subscription) {
+                subscriptions.current = { ...(subscriptions.current ?? {}), [id]: subscription };
+            }
+            return { id, subscription };
+        },
+        [getApiInstance, WS]
+    );
+
+    const unsubscribe: TUnsubscribeFunction = useCallback(id => {
         const matchingSubscription = subscriptions.current?.[id];
         if (matchingSubscription) matchingSubscription.unsubscribe();
-    };
+    }, []);
 
     useEffect(() => {
         const currentDerivApi = standaloneDerivAPI.current;
@@ -226,37 +249,39 @@ const APIProvider = ({ children, standalone = false, ws_url }: PropsWithChildren
         return () => {
             if (currentSubscriptions) {
                 Object.keys(currentSubscriptions).forEach(key => {
-                    currentSubscriptions[key].unsubscribe();
+                    currentSubscriptions[key]?.unsubscribe?.();
                 });
             }
-            if (currentDerivApi && currentDerivApi.connection.readyState === 1) currentDerivApi.disconnect();
+            if (currentDerivApi && currentDerivApi.connection?.readyState === 1) {
+                currentDerivApi.disconnect();
+            }
         };
     }, []);
 
     const switchEnvironment = useCallback(
         (loginid: string | null | undefined) => {
-            if (!standalone) return;
             const currentEnvironment = getEnvironment();
             if (currentEnvironment !== 'custom' && currentEnvironment !== environment) {
                 setEnvironment(currentEnvironment);
             }
         },
-        [environment, standalone]
+        [environment]
     );
 
     useEffect(() => {
-        let interval_id: ReturnType<typeof setInterval>;
-
-        if (standalone) {
-            interval_id = setInterval(() => standaloneDerivAPI.current?.send({ time: 1 }), 30000);
-        }
+        const interval_id = setInterval(() => {
+            const api = standaloneDerivAPI.current || WS;
+            if (api && typeof api.send === 'function') {
+                api.send({ ping: 1 });
+            }
+        }, 30000);
 
         return () => clearInterval(interval_id);
-    }, [standalone]);
+    }, [WS]);
 
     useEffect(() => {
         let reconnectTimerId: NodeJS.Timeout;
-        if (standalone || reconnect) {
+        if (reconnect) {
             standaloneDerivAPI.current = initializeDerivAPI(() => {
                 reconnectTimerId = setTimeout(() => setReconnect(true), 500);
             }, ws_url);
@@ -264,7 +289,7 @@ const APIProvider = ({ children, standalone = false, ws_url }: PropsWithChildren
         }
 
         return () => clearTimeout(reconnectTimerId);
-    }, [environment, reconnect, standalone, ws_url]);
+    }, [environment, reconnect, ws_url]);
 
     const restAPIConfig: TRestAPIConfig = React.useMemo(() => {
         return {
@@ -275,7 +300,7 @@ const APIProvider = ({ children, standalone = false, ws_url }: PropsWithChildren
     return (
         <APIContext.Provider
             value={{
-                derivAPI: standalone ? standaloneDerivAPI.current : WS,
+                derivAPI: standaloneDerivAPI.current || WS,
                 switchEnvironment,
                 send,
                 subscribe,
